@@ -1,0 +1,52 @@
+{
+  "name": "dataflow-retail",
+  "version": "1.0.0",
+  "description": "Offline-first supermarket billing, stock, GST, accounts and CRM that runs in the browser",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 8080",
+    "start": "vite preview --host --port 8080",
+    "build:artifact": "vite build && node scripts/artifact.mjs",
+    "desktop": "vite build && electron ."
+  },
+  "dependencies": {
+    "dexie": "^4.0.8",
+    "jsbarcode": "^3.11.6",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10",
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "in.dataflowai.retail",
+    "productName": "DataFlow Retail",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "DataFlow-Retail-Setup-${version}.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "DataFlow Retail"
+    }
+  }
+}
