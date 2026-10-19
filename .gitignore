@@ -3,3 +3,5 @@ dist
 artifact
 release
 tests
+
+design-*.html
