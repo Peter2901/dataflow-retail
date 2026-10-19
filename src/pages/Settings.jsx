@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db, setSetting, resetAll } from '../db.js';
 import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Modal, Input, Select, Card, Tabs, Badge } from '../ui/kit.jsx';
 import { hashPin, validGSTIN, uid, fyOf } from '../lib/util.js';
 import { audit } from '../lib/sales.js';
+import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL } from '../lib/sync.js';
 
 export default function Settings() {
   const [tab, setTab] = useState('store');
   return (
     <div className="stack">
       <PageHead title="Settings" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'sync', label: 'Cloud sync' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
       {tab === 'store' && <StoreSettings />}
       {tab === 'users' && <Users />}
+      {tab === 'sync' && <SyncSettings />}
       {tab === 'loyalty' && <LoyaltySettings />}
       {tab === 'payroll' && <PayrollSettings />}
       {tab === 'stores' && <Stores />}
@@ -93,6 +95,67 @@ function Users() {
       </Modal>}
     </div>
   );
+}
+
+function SyncSettings() {
+  const { user, settings } = useApp();
+  const toast = useToast();
+  const [f, setF] = useState({ syncUrl: settings.syncUrl || '', syncKey: settings.syncKey || '' });
+  const [st, setSt] = useState(getStatus());
+  const [busy, setBusy] = useState('');
+  const [result, setResult] = useState(null);
+  useEffect(() => onSyncStatus(setSt), []);
+  const save = async (enable) => {
+    await setSetting('syncUrl', f.syncUrl.trim().replace(/\/+$/, ''));
+    await setSetting('syncKey', f.syncKey.trim());
+    if (enable !== undefined) await setSetting('syncEnabled', enable);
+    await audit('settings', { section: 'sync', enabled: enable }, user);
+  };
+  const test = async () => { setBusy('test'); await save(); setResult(await testConnection()); setBusy(''); };
+  const turnOn = async () => { setBusy('on'); await save(true); setResult(await testConnection()); await syncOnce(); setBusy(''); toast('Sync turned on.'); };
+  const turnOff = async () => { await save(false); toast('Sync turned off. Billing still works.'); };
+  const seed = async () => { setBusy('seed'); await save(true); await pushEverything(); setBusy(''); toast('Sent this counter’s data to the cloud.'); };
+  const copySql = () => { navigator.clipboard?.writeText(SETUP_SQL).then(() => toast('SQL copied.')).catch(() => {}); };
+  const when = st.lastSync ? new Date(st.lastSync).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '—';
+  return (
+    <div className="stack">
+      <Card title="Cloud sync (keep all counters in step)">
+        <p className="small muted" style={{ marginTop: 0 }}>
+          Free with a Supabase project. Every counter sends its bills and stock changes to one online database and pulls the others’.
+          Each counter still bills with no internet and catches up when it is back. Give every counter the <b>same</b> Project URL and key, but a <b>different</b> counter code (T1, T2…).
+        </p>
+        <div className="grid g2">
+          <Input label="Supabase Project URL" value={f.syncUrl} onChange={e => setF({ ...f, syncUrl: e.target.value })} hint="e.g. https://abcdxyz.supabase.co" id="sy-url" />
+          <Input label="anon public key" type="password" value={f.syncKey} onChange={e => setF({ ...f, syncKey: e.target.value })} hint="Project Settings › API › anon public" id="sy-key" />
+        </div>
+        <div className="row gap-s" style={{ marginTop: 12, flexWrap: 'wrap' }}>
+          <Btn onClick={test} disabled={!!busy}>{busy === 'test' ? 'Checking…' : 'Test connection'}</Btn>
+          {!settings.syncEnabled
+            ? <Btn kind="primary" onClick={turnOn} disabled={!!busy}>{busy === 'on' ? 'Turning on…' : 'Turn sync on'}</Btn>
+            : <Btn kind="danger" onClick={turnOff}>Turn sync off</Btn>}
+          <Btn onClick={seed} disabled={!!busy}>{busy === 'seed' ? 'Sending…' : 'Send this counter’s data to cloud'}</Btn>
+        </div>
+        {result && <p className={`note ${result.ok ? '' : ''}`} style={{ marginTop: 12 }}>{result.ok ? '✅ ' : '⚠️ '}{result.msg}</p>}
+      </Card>
+      <Card title="Status">
+        <div className="grid g3">
+          <Stat label="Sync" value={settings.syncEnabled ? (st.online ? 'On' : 'On (offline)') : 'Off'} />
+          <Stat label="Waiting to send" value={String(st.pending || 0)} />
+          <Stat label="Last synced" value={when} />
+        </div>
+        {st.error ? <p className="small" style={{ color: 'var(--bad)', marginTop: 10 }}>Last error: {st.error}</p> : null}
+      </Card>
+      <Card title="One-time setup in Supabase">
+        <p className="small muted" style={{ marginTop: 0 }}>In Supabase open <b>SQL Editor</b>, paste this once and press <b>Run</b>. It makes the shared table the app uses.</p>
+        <pre className="mono" style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, padding: 12, overflowX: 'auto', fontSize: 12, whiteSpace: 'pre-wrap' }}>{SETUP_SQL}</pre>
+        <Btn onClick={copySql} style={{ marginTop: 8 }}>Copy SQL</Btn>
+      </Card>
+    </div>
+  );
+}
+
+function Stat({ label, value }) {
+  return <div className="stat"><div className="small muted">{label}</div><div style={{ fontSize: 20, fontWeight: 700 }}>{value}</div></div>;
 }
 
 function LoyaltySettings() {

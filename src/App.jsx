@@ -3,6 +3,7 @@ import { db, ensureSeeded, getSettings } from './db.js';
 import { AppCtx, ToastHost, ApproveHost, ConfirmHost, useLive } from './ui/kit.jsx';
 import { hashPin, daysBetween, localISO } from './lib/util.js';
 import { audit } from './lib/sales.js';
+import { startSync, getStatus, onSyncStatus } from './lib/sync.js';
 import Dashboard from './pages/Dashboard.jsx';
 import POS from './pages/POS.jsx';
 import Orders from './pages/Orders.jsx';
@@ -127,6 +128,7 @@ export default function App() {
   const [param, setParam] = useState(null);
   const [menu, setMenu] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
+  const [sync, setSync] = useState(getStatus());
   const settings = useLive(() => getSettings(), [], null);
 
   useEffect(() => {
@@ -136,7 +138,9 @@ export default function App() {
     // Inside a claude.ai artifact, file saving goes through the downloads capability.
     autoBackup();
     window.claude?.use?.('downloads').then(d => { if (d) window.__dfrDownloads = d; }).catch(() => {});
-    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    const offSync = onSyncStatus(setSync);
+    startSync();
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); offSync(); };
   }, []);
 
   useEffect(() => {
@@ -197,7 +201,14 @@ export default function App() {
               })}
             </nav>
             <div className="side-foot">
-              <span className="net"><span className={`dot ${online ? '' : 'off'}`} />{online ? 'Online' : 'Offline — billing continues'}{counts?.pending ? ` · ${counts.pending} to sync` : ''}</span>
+              <span className="net" title={sync.error || ''}>
+                <span className={`dot ${online ? '' : 'off'}`} />
+                {!online ? 'Offline — billing continues'
+                  : !sync.enabled ? 'Online'
+                  : sync.pending ? `Syncing · ${sync.pending} to send`
+                  : sync.lastSync ? `Synced ${new Date(sync.lastSync).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Sync on'}
+              </span>
               <div className="row between"><span>{user.name} · {ROLE_LABEL[user.role]}</span><button className="btn btn-sm btn-dark" onClick={ctx.logout}>Lock</button></div>
             </div>
           </aside>
