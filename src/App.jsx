@@ -22,6 +22,31 @@ import Setup from './pages/Setup.jsx';
 import Settings from './pages/Settings.jsx';
 
 const ALL = ['owner', 'manager', 'cashier', 'accountant'];
+
+// Simple line icons (stroke) for the sidebar, keyed by nav id.
+const ICON = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  pos: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M7 14h4"/>',
+  orders: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 21l-5.3-1.1A8.5 8.5 0 1 1 21 11.5Z"/>',
+  products: '<path d="M3 7l9-4 9 4-9 4-9-4Z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>',
+  stock: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>',
+  expiry: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  offers: '<path d="M20 12l-8 8-9-9V3h8l9 9Z"/><circle cx="7.5" cy="7.5" r="1.3"/>',
+  purchases: '<path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6L5 3H2"/><circle cx="9" cy="20" r="1.3"/><circle cx="18" cy="20" r="1.3"/>',
+  customers: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/><path d="M18 20a6 6 0 0 0-3-5"/>',
+  credit: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  accounts: '<path d="M4 21V10M10 21V4M16 21v-8M22 21H2"/>',
+  reports: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
+  staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  assistant: '<path d="M12 3a7 7 0 0 1 7 7c0 3-2 4-2 6H7c0-2-2-3-2-6a7 7 0 0 1 7-7Z"/><path d="M9 21h6"/>',
+  audit: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path d="M9 12l2 2 4-4"/>',
+  setup: '<path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2.3"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>',
+};
+const NavIcon = ({ id }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICON[id] || '' }} />
+);
+
 export const NAV = [
   { group: 'Today', items: [
     { id: 'dashboard', label: 'Dashboard', roles: ['owner', 'manager', 'accountant'], el: Dashboard },
@@ -164,7 +189,7 @@ export default function App() {
                     <div className="nav-group">{g.group}</div>
                     {vis.map(i => (
                       <button key={i.id} className={`nav-item ${current.id === i.id ? 'on' : ''}`} onClick={() => go(i.id)}>
-                        {i.label}{i.badge && counts?.[i.badge] ? <span className="nav-count">{counts[i.badge]}</span> : null}
+                        <NavIcon id={i.id} /><span>{i.label}</span>{i.badge && counts?.[i.badge] ? <span className="nav-count">{counts[i.badge]}</span> : null}
                       </button>
                     ))}
                   </div>
