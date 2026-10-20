@@ -90,18 +90,38 @@ Also: **scan-to-receive** (scan each item as goods are unpacked), **repeat last 
 the counter when a barcode is unknown), **store barcodes** starting `02` for items without one, and **stickers**:
 50×25 mm label printer, A4 sheets (65 or 40 per page, start at any position) and shelf labels.
 
-## Owner phone app (Android)
+## Phone app (Android) — the whole store except billing
 
-View-only app for the owner: today's sales and profit, how customers paid, sales by hour, top items, every
-counter's online/offline status, WhatsApp orders, expired/expiring/low stock, and today's bills. It reads two
-summaries computed in Supabase (`owner_today`, `owner_alerts` in `supabase/setup.sql`), about 2 KB per refresh.
+The Android app is the full store app built with `npm run build:mobile` (`--mode mobile`), without the billing counter:
+dashboard, Smart insights, products, stock, expiry, purchases with Smart Scan (bill photo from the phone camera),
+customers, udhaar, accounts, reports, staff, Ask your shop and settings. It is a synced device like a counter
+(code `P…`), so changes on the phone reach the counters within seconds; it sends no heartbeat (it is not a counter).
 
 - APK (fixed link, rebuilt on every push): https://github.com/Peter2901/dataflow-retail/releases/download/owner-app/DataFlow-Owner.apk
-- No-install version: https://peter2901.github.io/dataflow-retail/owner.html (Chrome › Install app)
-- Setup: counter › Settings › Cloud sync › *Owner phone app* › Share on WhatsApp (or scan the QR).
-- Code: `owner.html`, `src/owner/`. Android wrapper: Capacitor (`capacitor.config.json`, `.github/workflows/android.yml`).
-- Signing: the APK is signed with `android-signing/debug.keystore` so updates install over the old app.
-  This is a test key in a public repo — move it to a private GitHub secret before wider release.
+- Connect: main counter (T1) › Settings › Cloud sync › *Phone app* → Share on WhatsApp / QR. Opening that card on T1 once
+  shares users (hashed PINs), staff, shifts, audit log, history and store settings for phones (`prepareForPhones`).
+- Store settings travel as one `storeSettings` row, sent only when a person saves a shared setting — a new or "start fresh"
+  device can never overwrite the real store's settings. Device settings (sync keys, counter code, theme) never travel.
+- The light owner view (`owner.html`, read-only) is still on the website.
+- Signing: `android-signing/debug.keystore` (test key in a public repo — move it to a private secret before wider release).
+
+## Smart features (code first, AI only when needed)
+
+Plain code on the device does the work; the AI function `supabase/functions/dataflow-ai` (one function, tasks `bill`,
+`pack`, `khata`, `voice`, `hsn`, `route`) is called only when the code cannot tell, and only if Settings › AI & Smart Scan
+has AI on. Model/company switch with the `AI_PROVIDER` / `AI_MODEL` secrets; the key stays in Supabase.
+
+| Feature | Code (free) | AI only when |
+|---|---|---|
+| Smart Scan bill photo | QR, offline OCR, parser, total checks | totals don't match / items not recognised |
+| Spoken or typed purchase line | number words (Hindi/Odia/English), units, ₹, synonyms | item or quantity not found |
+| Pack photo → product | barcode, OCR for MRP / net qty / FSSAI | name not readable |
+| HSN / GST hint | your most similar product; built-in HSN list | you press Ask AI |
+| Paper khata photo → dues | OCR + line parser | fewer than 2 rows read, or you ask |
+| Ask your shop | intent words (EN/Hinglish/Hindi/Odia) → fixed reports | question not understood (AI only picks the report) |
+| Dead stock, expiry clearance, festival planning, staff alerts, customer habits, udhaar recovery, daily summary, to-do, weekly report | `src/lib/insights.js` | never |
+| Smart search ("chini", "ଚିନି", typos) | `src/lib/search.js` | never |
+| WhatsApp texts in English / Hindi / Odia | `src/lib/messages.js` | never |
 
 ## Not built yet (next phase)
 
@@ -109,6 +129,5 @@ summaries computed in Supabase (`owner_today`, `owner_alerts` in `supabase/setup
 - Automatic UPI/card confirmation from a payment gateway (cashier confirms today).
 - E-invoice (IRN) and e-way bill generation through a GST Suvidha Provider.
 - Fingerprint/face devices and electronic shelf labels.
-- The AI assistant answers free-form questions inside claude.ai; the installed app has fixed quick answers until an AI key is added (`src/lib/ai.js`).
 
 GST and payroll rates are configurable; confirm them with your accountant.

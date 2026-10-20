@@ -5,6 +5,11 @@ import { LineChart } from '../ui/Chart.jsx';
 import { inr, num, r2, sum, dayStart, addDays, waLink, daysBetween, fmtDT, localISO } from '../lib/util.js';
 import { expiryZone, daysLeft, stockMap, DEFAULT_EXPIRY } from '../lib/stock.js';
 import { partyBalances } from '../lib/parties.js';
+import { dailySummary } from '../lib/insights.js';
+import { summaryText, LANGS } from '../lib/messages.js';
+import { TodoList } from './Smart.jsx';
+import { setSetting } from '../db.js';
+import { counterStatus } from '../lib/sync.js';
 
 export async function dashboardData(storeId, cfg) {
   const today0 = dayStart();
@@ -64,6 +69,7 @@ export default function Dashboard() {
         sub={`${settings.storeName} · ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}`}
         actions={<a className="btn" href={waLink(settings.ownerPhone || '', summary)} target="_blank" rel="noreferrer">Send today’s summary on WhatsApp</a>} />
       {settings.sampleData && <div className="note">You’re looking at <b>sample data</b>. Load your real product list in Import & setup, then clear the samples in Settings.</div>}
+      <SmartCards />
 
       <div className="grid g4">
         <Stat label="Sales today" value={inr(d.sales, 0)} sub={change == null ? `${d.bills} bills` : `${d.bills} bills · ${change >= 0 ? '+' : ''}${change}% vs yesterday`} />
@@ -130,4 +136,23 @@ function FollowList({ items }) {
     { label: 'What to do', key: 'note' },
     { label: 'Due', key: 'due' },
   ]} />;
+}
+
+// Today in one line (EN / Hindi / Odia), the top things to do, and which counters are online.
+function SmartCards() {
+  const { storeId, settings, go } = useApp();
+  const lang = settings.msgLang || 'en';
+  const sm = useLive(() => dailySummary(storeId), [storeId], null);
+  const counters = useLive(() => counterStatus(), [], null);
+  const text = sm ? summaryText(sm, lang) : '';
+  return (
+    <div className="grid g2">
+      <Card title="Today in short" actions={<select className="input" style={{ width: 110 }} value={lang} onChange={e => setSetting('msgLang', e.target.value)} aria-label="Language">{LANGS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}</select>}>
+        {!sm ? <p className="muted">…</p> : <p className="summary-text">{text}</p>}
+        {counters?.length > 0 && <div className="row gap-s wrap" style={{ marginTop: 10 }}>{counters.map(c => <Badge key={c.counter} tone={c.online ? 'ok' : 'neutral'}>{c.counter} {c.online ? 'online' : 'offline'}{c.user ? ` · ${c.user}` : ''}</Badge>)}</div>}
+        {sm && <div className="row gap-s" style={{ marginTop: 10 }}><a className="btn btn-sm" href={waLink(settings.ownerPhone || '', text)} target="_blank" rel="noreferrer">Share</a></div>}
+      </Card>
+      <Card title="To-do today" actions={<Btn size="sm" onClick={() => go('smart')}>All insights</Btn>}><TodoList limit={4} /></Card>
+    </div>
+  );
 }

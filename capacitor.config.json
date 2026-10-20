@@ -1,7 +1,12 @@
 {
   "appId": "in.dataflowai.owner",
-  "appName": "DataFlow Owner",
-  "webDir": "dist-owner",
-  "server": { "androidScheme": "https" },
-  "android": { "allowMixedContent": false, "backgroundColor": "#0F1B2D" }
+  "appName": "DataFlow Retail",
+  "webDir": "dist-mobile",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0F1B2D"
+  }
 }

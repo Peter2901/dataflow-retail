@@ -38,9 +38,9 @@ export async function freshStoreBarcode() {
  * Quick add: name, MRP, selling price, GST, opening stock (+ optional barcode/cost).
  * Creates the product and, if stock is given, an opening batch.
  */
-export async function quickAddProduct({ name, barcode, mrp, price, gst, stock, cost, category, storeId, user }) {
+export async function quickAddProduct({ name, barcode, mrp, price, gst, stock, cost, category, hsn, brand, storeId, user }) {
   const products = await db.products.toArray();
-  const p = cleanProduct({ ...BLANK_PRODUCT, name, barcode: barcode || await freshStoreBarcode(), mrp, price: price || mrp, gst, cost: cost || '', category: category || 'General', quickAdded: true });
+  const p = cleanProduct({ ...BLANK_PRODUCT, name, barcode: barcode || await freshStoreBarcode(), mrp, price: price || mrp, gst, cost: cost || '', category: category || 'General', hsn: hsn || '', brand: brand || '', quickAdded: true });
   const errs = productErrors(p, products);
   if (errs.length) throw new Error(errs.join(' '));
   await db.products.put(p);

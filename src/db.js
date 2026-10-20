@@ -52,7 +52,21 @@ db.version(3).stores({
 
 // Tables that sync to the cloud. Append-only logs and shared master data only;
 // local-only things (settings, users, shifts, held, bank lines) stay on the device.
-export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 'suppliers', 'purchases', 'sales', 'orders', 'offers', 'journal', 'itemAliases'];
+// Since v1.1 the phone app is a full copy of the store (everything except billing), so staff,
+// users (hashed PINs), shifts, the audit log and the rest sync too.
+export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 'suppliers', 'purchases', 'sales', 'orders', 'offers', 'journal', 'itemAliases',
+  'users', 'shifts', 'audit', 'debitNotes', 'purchaseOrders', 'followups', 'employees', 'attendance', 'payroll', 'stores', 'accounts', 'bankLines'];
+
+// Settings that belong to one device and are never shared with the others.
+export const DEVICE_KEYS = new Set(['syncUrl', 'syncKey', 'syncEnabled', 'terminal', 'deviceMode', 'theme', 'sampleData', 'lang', 'currentStore']);
+export const isSharedSetting = k => !DEVICE_KEYS.has(k) && !/^(seq_|chain_|_)/.test(k);
+
+// When a person saves a shared setting here (setSetting), the sync sends the store settings to the
+// other devices. Seeding, "start fresh" and settings arriving from the cloud never trigger this,
+// so a new device can never overwrite the real store's settings with sample ones.
+export const markSettingsDirty = () => { try { localStorage.setItem('dfr_settings_dirty', String(Date.now())); } catch { /* ignore */ } };
+export const settingsDirty = () => { try { return Number(localStorage.getItem('dfr_settings_dirty') || 0); } catch { return 0; } };
+export const clearSettingsDirty = at => { try { if (settingsDirty() <= at) localStorage.removeItem('dfr_settings_dirty'); } catch { /* ignore */ } };
 
 // Auto-stamp every create/update so the sync knows what is new.
 // Rows written by the sync carry `_oc` (the counter they came from) and `_seq`
@@ -84,6 +98,7 @@ export async function getSettings() {
 
 export async function setSetting(key, value) {
   await db.settings.put({ key, value });
+  if (isSharedSetting(key)) markSettingsDirty();
 }
 
 export async function resetAll() {

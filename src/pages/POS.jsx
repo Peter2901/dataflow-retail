@@ -11,6 +11,7 @@ import { customerDue } from '../lib/parties.js';
 import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum } from '../lib/util.js';
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
+import { smartSearch } from '../lib/search.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
 
@@ -96,7 +97,7 @@ export default function POS() {
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (q.length < 2 || /^\d{8,}$/.test(q)) return [];
-    return products.filter(p => p.active !== false && (p.name.toLowerCase().includes(q) || p.brand?.toLowerCase().includes(q) || p.id.toLowerCase() === q || p.plu === q)).slice(0, 8);
+    return smartSearch(query.trim(), products, 8);   // Hindi/Odia names and typing mistakes too
   }, [query, products]);
 
   const addProduct = async (p, qty = 1) => {
@@ -335,11 +336,11 @@ export default function POS() {
 }
 
 function OpenShift({ storeId }) {
-  const { user } = useApp();
+  const { user, settings } = useApp();
   const [cash, setCash] = useState('2000');
   const open = async e => {
     e.preventDefault();
-    await db.shifts.add({ id: uid('sh_'), userId: user.id, userName: user.name, storeId, openedAt: Date.now(), openingCash: Number(cash) || 0, closedAt: null });
+    await db.shifts.add({ id: uid('sh_'), userId: user.id, userName: user.name, storeId, counter: settings.terminal || 'T1', openedAt: Date.now(), openingCash: Number(cash) || 0, closedAt: null });
     audit('shift_open', { float: Number(cash) }, user);
   };
   return (

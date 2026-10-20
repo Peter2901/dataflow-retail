@@ -16,8 +16,12 @@ export default function Audit() {
   const verifyBills = async () => setChain(await verifyChain(storeId));
   const verifyLog = async () => {
     const all = await db.audit.orderBy('ts').toArray();
-    let prev = 'GENESIS', bad = 0;
-    for (const a of all) { const h = await sha256(prev + '|' + a.ts + '|' + a.action + '|' + JSON.stringify(a.detail || {})); if (a.prevHash !== prev || h !== a.hash) bad++; prev = a.hash; }
+    let bad = 0;
+    // One chain per device: this device's own rows, and each other counter's rows.
+    for (const rows of Object.values(groupBy(all, a => a._oc || 'here'))) {
+      let prev = 'GENESIS';
+      for (const a of rows) { const h = await sha256(prev + '|' + a.ts + '|' + a.action + '|' + JSON.stringify(a.detail || {})); if (a.prevHash !== prev || h !== a.hash) bad++; prev = a.hash; }
+    }
     setLogCheck({ count: all.length, bad });
   };
   // Alerts: more than 3 risky actions by one person within an hour, and cash shortfalls.

@@ -8,6 +8,7 @@ import { validGSTIN } from './util.js';
 import { GST_SLABS } from './billing.js';
 import { matchLine, loadAliases, packHint, isCaseUnit } from './match.js';
 import { checkBill } from './purchaseChecks.js';
+import { aiConfig, askAI } from './smartai.js';
 
 // ---------- images
 async function toCanvas(file, maxSide) {
@@ -44,6 +45,12 @@ export function parseEinvoicePayload(text) {
 }
 
 // ---------- 2) free offline reading
+/** Free offline OCR of one canvas (used by Smart Scan, pack photos and the khata photo). */
+export async function ocrCanvas(c) {
+  if (window.dfrDesktop?.ocr) return window.dfrDesktop.ocr(canvasJpeg(c, 0.92));
+  const w = await ocrWorker();
+  return (await w.recognize(c)).data.text;
+}
 let workerP = null;
 async function ocrWorker() {
   if (!workerP) workerP = (async () => {
@@ -178,22 +185,10 @@ export function parseItemLines(text) {
 }
 
 // ---------- 3) AI fallback through the store's Supabase function
-export async function smartScanConfig() {
-  const s = await getSettings();
-  const ss = s.smartScan || {};
-  return { url: (s.syncUrl || '').replace(/\/+$/, ''), key: s.syncKey || '', ai: ss.ai || 'off', scanKey: ss.scanKey || '', storeGstin: s.gstin || '', storeName: s.storeName || '' };
-}
-
+export const smartScanConfig = aiConfig;
 export async function readWithAI(canvases, conf) {
-  if (!conf.url || !conf.key) throw new Error('AI reading needs the cloud set up (Settings › Cloud sync).');
-  const res = await fetch(`${conf.url}/functions/v1/read-bill`, {
-    method: 'POST',
-    headers: { apikey: conf.key, Authorization: 'Bearer ' + conf.key, 'Content-Type': 'application/json', ...(conf.scanKey ? { 'x-scan-key': conf.scanKey } : {}) },
-    body: JSON.stringify({ images: canvases.map(c => canvasJpeg(c)), storeGstin: conf.storeGstin }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body.ok) throw new Error(body.error || `AI reading failed (${res.status}).`);
-  return body;   // { ok, data, usage: { input, output }, model, provider }
+  const r = await askAI('bill', {}, canvases.map(c => canvasJpeg(c)), conf);
+  return r;   // { ok, data, usage: { input, output }, model, provider }
 }
 
 // ---------- the whole pipeline
@@ -277,7 +272,7 @@ export async function scanBill(files, { products, suppliers, storeId, ctx, uid, 
 }
 
 export async function scanUsageThisMonth() {
-  const month = new Date().toISOString().slice(0, 7);
+  const d = new Date(); const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   const ps = (await db.purchases.toArray()).filter(p => p.scan && String(p.date || '').slice(0, 7) === month);
   return { bills: ps.length, free: ps.filter(p => p.scan.method === 'free').length, ai: ps.filter(p => p.scan.method === 'ai').length,
     tokens: ps.reduce((a, p) => a + (p.scan.usage?.input || 0) + (p.scan.usage?.output || 0), 0) };

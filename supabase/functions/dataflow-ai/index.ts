@@ -1,4 +1,7 @@
-// Supabase Edge Function "read-bill": reads supplier bill photos with an AI model.
+// Supabase Edge Function "dataflow-ai": the ONE place the store app talks to an AI model.
+// The app always tries plain code first; it calls this only when code could not solve it.
+// Tasks: bill (bill photos), pack (product pack photo), khata (credit-book photo),
+//        voice (spoken purchase line), hsn (HSN/GST hint for new items), route (which report answers a question).
 // The AI key stays here in Supabase secrets — never in the app, never on the counters.
 //
 // Secrets (Supabase › Edge Functions › Secrets):
@@ -17,7 +20,7 @@ const reply = (status: number, body: unknown) => new Response(JSON.stringify(bod
 
 const DEFAULT_MODEL: Record<string, string> = { xai: 'grok-4.3', anthropic: 'claude-haiku-5-5', gemini: 'gemini-3.1-flash-lite', openai: 'gpt-5.6-luna' };
 
-function prompt(storeGstin: string) {
+function billPrompt(storeGstin: string) {
   return `You read Indian GST purchase invoices (a distributor's bill to a supermarket). Return ONLY one JSON object, no other text:
 {"supplierName": string|null, "supplierGstin": string|null, "billNo": string|null, "date": "YYYY-MM-DD"|null,
  "taxType": "cgst_sgst"|"igst"|null, "total": number|null,
@@ -35,6 +38,27 @@ Rules:
 - The buyer is the store${storeGstin ? ` (GSTIN ${storeGstin})` : ''}; "supplierGstin" is the seller's GSTIN, not the buyer's.
 - Never guess: use null for anything you cannot read clearly. Numbers as plain numbers (no commas, no ₹).`;
 }
+
+const PROMPTS: Record<string, (b: Record<string, unknown>) => string> = {
+  bill: b => billPrompt(String(b.storeGstin || '').slice(0, 15)),
+  pack: () => `This is a photo of a retail product pack sold in India. Return ONLY JSON:
+{"name": string|null (brand + product + variant + size, as a shopper would say it, e.g. "Parle-G Biscuits 100 g"), "brand": string|null,
+ "netQty": number|null, "unit": "g"|"kg"|"ml"|"l"|"pc"|null, "mrp": number|null (MRP incl. all taxes, per pack),
+ "barcode": string|null (digits under the barcode), "fssai": string|null, "category": string|null (e.g. Biscuits, Dairy, Home Care)}
+Use null for anything not printed clearly. Never guess the MRP.`,
+  khata: () => `This is a photo of a shop's handwritten credit book (khata / udhaar register) in India, possibly in Hindi, Odia or English.
+Return ONLY JSON: {"rows": [{"name": string, "phone": string|null, "amount": number, "date": "YYYY-MM-DD"|null}]}
+One row per customer balance that is written. "amount" = the money the customer owes (positive). Skip crossed-out rows. Use null if unsure; never invent names or amounts.`,
+  voice: b => `A supermarket owner in India spoke this purchase line (Hindi, Odia, English or mixed): "${String(b.text || '').slice(0, 300)}".
+Return ONLY JSON: {"items": [{"text": string (product words only), "qty": number|null, "unit": string|null, "rate": number|null, "free": number|null}]}
+"rate" is the price per unit if spoken ("52 rupaye" = 52). Convert number words (बीस=20, kodie=20, ek=1) to digits.`,
+  hsn: b => `For these products sold in an Indian supermarket, suggest the HSN code (4 or 6 digits) and the GST rate under the current GST slabs (0, 5, 18 or 40).
+Products: ${JSON.stringify((b.names as string[] || []).slice(0, 30))}
+Return ONLY JSON: {"items": [{"name": string, "hsn": string|null, "gst": number|null, "sure": boolean}]}. Set "sure": false when it depends on packing or brand. These are hints that a person will confirm.`,
+  route: b => `You route a shop owner's question to ONE report of their store app. Question: "${String(b.question || '').slice(0, 300)}"
+Reports (id: what it answers): ${JSON.stringify(b.reports || [])}
+Return ONLY JSON: {"report": string (one id from the list, or "none"), "params": {"days": number|null, "query": string|null, "limit": number|null}}`,
+};
 
 function parseJSON(text: string) {
   const a = text.indexOf('{'), b = text.lastIndexOf('}');
@@ -87,18 +111,20 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return reply(405, { ok: false, error: 'POST only' });
   const need = Deno.env.get('SCAN_KEY');
   if (need && req.headers.get('x-scan-key') !== need) return reply(401, { ok: false, error: 'Smart Scan key is wrong. Check Settings › Smart Scan.' });
-  let body: { images?: string[]; storeGstin?: string };
+  let body: { task?: string; images?: string[]; [k: string]: unknown };
   try { body = await req.json(); } catch { return reply(400, { ok: false, error: 'Bad request' }); }
+  const task = String(body.task || 'bill');
+  if (!PROMPTS[task]) return reply(400, { ok: false, error: `Unknown task ${task}` });
   const images = (body.images || []).filter(x => typeof x === 'string' && x.startsWith('data:image/')).slice(0, 4);
-  if (!images.length) return reply(400, { ok: false, error: 'No photo received.' });
+  if (['bill', 'pack', 'khata'].includes(task) && !images.length) return reply(400, { ok: false, error: 'No photo received.' });
   if (images.some(x => x.length > 6_000_000)) return reply(413, { ok: false, error: 'Photo is too large.' });
   const provider = (Deno.env.get('AI_PROVIDER') || 'xai').toLowerCase();
   const model = Deno.env.get('AI_MODEL') || DEFAULT_MODEL[provider];
   try {
-    const r = await callAI(provider, model, images, prompt(String(body.storeGstin || '').slice(0, 15)));
+    const r = await callAI(provider, model, images, PROMPTS[task](body));
     const data = parseJSON(r.text);
-    if (!Array.isArray(data.lines)) data.lines = [];
-    return reply(200, { ok: true, data, usage: { input: r.input, output: r.output }, provider, model });
+    if (task === 'bill' && !Array.isArray(data.lines)) data.lines = [];
+    return reply(200, { ok: true, task, data, usage: { input: r.input, output: r.output }, provider, model });
   } catch (e) {
     return reply(502, { ok: false, error: (e as Error).message || 'AI reading failed.' });
   }

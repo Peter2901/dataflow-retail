@@ -2,7 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card, Tabs, Stat } from '../ui/kit.jsx';
 import { inr, num, r2, sum, uid, validGSTIN, waLink, daysBetween, fmtDate } from '../lib/util.js';
-import { savePurchase, reorderSuggestions, createPO, poText, paySupplier } from '../lib/purchasing.js';
+import { reorderSuggestions, createPO, paySupplier } from '../lib/purchasing.js';
+import { poTextLang, LANGS } from '../lib/messages.js';
 import { partyBalances } from '../lib/parties.js';
 import { readAny } from '../lib/excel.js';
 import { DEFAULT_EXPIRY } from '../lib/stock.js';
@@ -67,7 +68,7 @@ function Orders({ onReceive }) {
   const make = async sid => {
     const items = groups[sid].filter(s => pick[s.product.id] ?? !s.nearExpiry);
     if (!items.length) return;
-    const po = await createPO({ supplier: sm[sid], user, lines: items.map(s => ({ productId: s.product.id, name: s.product.name, qty: Number(qtys[s.product.id] ?? s.qty), rate: s.product.cost, gst: s.product.gst })) });
+    const po = await createPO({ supplier: sm[sid], user, lines: items.map(s => ({ productId: s.product.id, name: s.product.name, qty: Number(qtys[s.product.id] ?? s.qty), rate: s.product.cost, gst: s.product.gst, casePack: s.product.casePack || 1 })) });
     toast(`${po.no} drafted. Send it on WhatsApp below.`);
   };
   const approvalTier = t => t <= 50000 ? 'Auto-approved' : t <= 250000 ? 'Manager approval' : 'Owner approval';
@@ -97,7 +98,7 @@ function Orders({ onReceive }) {
           { label: 'Approval', render: o => <span className="small">{approvalTier(o.total)}</span> },
           { label: 'Status', render: o => <Badge tone={o.status === 'received' ? 'ok' : o.status === 'sent' ? 'info' : 'accent'}>{o.status}</Badge> },
           { label: '', render: o => o.status !== 'received' && <div className="row gap-s">
-            <a className="btn btn-sm" href={waLink(sm[o.supplierId]?.phone, poText(o, sm[o.supplierId], settings))} target="_blank" rel="noreferrer" onClick={() => db.purchaseOrders.update(o.id, { status: 'sent' })}>Send on WhatsApp</a>
+            <a className="btn btn-sm" href={waLink(sm[o.supplierId]?.phone, poTextLang(o, sm[o.supplierId], settings, sm[o.supplierId]?.lang || 'en'))} target="_blank" rel="noreferrer" onClick={() => db.purchaseOrders.update(o.id, { status: 'sent' })}>Send on WhatsApp</a>
             <Btn size="sm" onClick={() => onReceive(o)}>Goods arrived</Btn></div> },
         ]} />
       </Card>
@@ -140,6 +141,7 @@ function Suppliers() {
           <Input label="Pay within (days)" type="number" value={edit.termsDays} onChange={e => setEdit({ ...edit, termsDays: e.target.value })} id="s-terms" />
           <Input label="Accepts returns until (days before expiry)" type="number" value={edit.returnDays} onChange={e => setEdit({ ...edit, returnDays: e.target.value })} id="s-ret" />
           <Input label="Delivery takes (days)" type="number" value={edit.leadDays} onChange={e => setEdit({ ...edit, leadDays: e.target.value })} id="s-lead" />
+          <Select label="WhatsApp order language" value={edit.lang || 'en'} onChange={e => setEdit({ ...edit, lang: e.target.value })} options={LANGS} id="s-lang" />
         </div>
       </Modal>}
       {pay && <PayModal supplier={pay} owed={owed(pay)} onClose={() => setPay(null)} onPay={async (amt, mode, ref) => { await paySupplier({ supplier: pay, amount: amt, mode, ref, user }); toast(`Paid ${inr(amt)} to ${pay.name}.`); setPay(null); }} />}

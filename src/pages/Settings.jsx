@@ -3,18 +3,19 @@ import { db, setSetting, resetAll } from '../db.js';
 import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Modal, Input, Select, Card, Tabs, Badge } from '../ui/kit.jsx';
 import { hashPin, validGSTIN, uid, fyOf } from '../lib/util.js';
 import { audit } from '../lib/sales.js';
-import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL } from '../lib/sync.js';
+import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL, prepareForPhones } from '../lib/sync.js';
 import QRCode from 'qrcode';
 import { waLink, num } from '../lib/util.js';
 import { scanUsageThisMonth, readWithAI, smartScanConfig } from '../lib/billreader.js';
-import READ_BILL_CODE from '../../supabase/functions/read-bill/index.ts?raw';
+import READ_BILL_CODE from '../../supabase/functions/dataflow-ai/index.ts?raw';
+import { aiUsageThisMonth } from '../lib/smartai.js';
 
 export default function Settings() {
   const [tab, setTab] = useState('store');
   return (
     <div className="stack">
       <PageHead title="Settings" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'sync', label: 'Cloud sync' }, { value: 'scan', label: 'Smart Scan' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'sync', label: 'Cloud sync' }, { value: 'scan', label: 'AI & Smart Scan' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
       {tab === 'store' && <StoreSettings />}
       {tab === 'users' && <Users />}
       {tab === 'sync' && <SyncSettings />}
@@ -166,30 +167,39 @@ function OwnerPhone() {
   const toast = useToast();
   const [code, setCode] = useState('');
   const [qr, setQr] = useState('');
+  const [prep, setPrep] = useState('');
   useEffect(() => {
     ownerSetupCode().then(c => {
       setCode(c);
-      if (c) QRCode.toDataURL(`${OWNER_WEB_URL}#setup=${c}`, { margin: 1, width: 220 }).then(setQr).catch(() => setQr(''));
+      if (c) QRCode.toDataURL(c, { margin: 1, width: 220 }).then(setQr).catch(() => setQr(''));
     });
   }, [settings.syncUrl, settings.syncKey, settings.currentStore, settings.storeName]);
+  // The first time: send users, staff, settings and history up once, so phones get the full store.
+  useEffect(() => {
+    if (!code || !settings.syncEnabled) return;
+    if ((settings.terminal || 'T1') !== 'T1') { setPrep('Open this card once on the main counter (T1) so it shares the users and store settings.'); return; }
+    setPrep('Sharing the full store for phones…');
+    prepareForPhones().then(did => setPrep(did ? 'Store shared for phones.' : '')).catch(e => setPrep('Could not share yet: ' + e.message));
+  }, [code, settings.syncEnabled, settings.terminal]);
   if (!code) return null;
-  const msg = `DataFlow Owner app for ${settings.storeName || 'the store'}\n\n1) Install the Android app: ${OWNER_APK_URL}\n2) Open it and paste this setup code:\n\n${code}\n\nOr open on any phone (no install): ${OWNER_WEB_URL}#setup=${code}`;
+  const msg = `DataFlow Retail phone app for ${settings.storeName || 'the store'} (everything except billing)\n\n1) Install the Android app: ${OWNER_APK_URL}\n2) Open it and paste this setup code:\n\n${code}\n\nLight live view without installing: ${OWNER_WEB_URL}#setup=${code}`;
   const copy = () => navigator.clipboard?.writeText(code).then(() => toast('Setup code copied.')).catch(() => toast('Select the code and copy it.', 'bad'));
   return (
-    <Card title="Owner phone app (live sales on Android)">
+    <Card title="Phone app (Android) — the whole store except billing">
       <div className="row gap-s" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        {qr && <img src={qr} alt="QR code: open the owner app on a phone" width="150" height="150" style={{ borderRadius: 8, background: '#fff', padding: 4 }} />}
+        {qr && <img src={qr} alt="QR code with the phone app setup code" width="150" height="150" style={{ borderRadius: 8, background: '#fff', padding: 4 }} />}
         <div className="stack" style={{ flex: 1, minWidth: 240 }}>
           <p className="small muted" style={{ margin: 0 }}>
-            The owner sees today’s sales, every counter’s status, stock alerts and bills, refreshed every 15 seconds. It only reads; it cannot change anything.
-            <b> Scan the QR</b> with the phone camera to open it right away, or send the Android app and setup code on WhatsApp.
+            On the phone: dashboard, Smart insights, products, stock, expiry, purchases with Smart Scan (take the bill photo on the phone), customers, udhaar, accounts, reports, staff and settings.
+            Log in with the same PINs as the counters. Changes made on the phone reach the counters within seconds.
           </p>
           <div className="row gap-s" style={{ flexWrap: 'wrap' }}>
             <a className="btn btn-primary" href={waLink(settings.ownerPhone || '', msg)} target="_blank" rel="noreferrer">Share on WhatsApp</a>
             <Btn onClick={copy}>Copy setup code</Btn>
             <a className="btn" href={OWNER_APK_URL} target="_blank" rel="noreferrer">Download Android app</a>
           </div>
-          <p className="small muted" style={{ margin: 0 }}>The setup code contains this store’s cloud key. Share it only with the owner.</p>
+          {prep && <p className="small" style={{ margin: 0 }}>{prep}</p>}
+          <p className="small muted" style={{ margin: 0 }}>The setup code contains this store’s cloud key. Share it only with the owner and managers.</p>
         </div>
       </div>
     </Card>
@@ -270,6 +280,8 @@ function System() {
     const S = { storeName: settings.storeName, address: settings.address, gstin: settings.gstin, stateCode: settings.stateCode, storeCode: settings.storeCode, terminal: settings.terminal, upiVpa: settings.upiVpa, upiName: settings.upiName, currentStore: 'S1', pointsPer100: 1, pointsMinRedeem: 50, pointsMaxPct: 30, creditDefaultLimit: 2000, expiry: settings.expiry, payroll: settings.payroll, supervisorRefundLimit: 500, writeOffLimit: 10000 };
     for (const [k, v] of Object.entries(S)) await db.settings.put({ key: k, value: v });
     await db.users.bulkPut(keep);
+    // Kept users are not sent to the cloud: if this counter is joining a store, the real users come down instead.
+    await db.syncMeta.put({ key: 'push:users', v: Date.now() + 60000 });
     await db.stores.put({ id: 'S1', name: 'Main Store', code: 'S1' });
     const { ensureChart } = await import('../lib/accounts.js');
     await ensureChart();
@@ -312,25 +324,25 @@ function SmartScanSettings() {
   const copy = () => navigator.clipboard?.writeText(READ_BILL_CODE).then(() => toast('Function code copied.')).catch(() => {});
   return (
     <div className="stack">
-      <Card title="How bills are read">
+       <Card title="How AI is used">
         <div className="stack">
-          <p className="small muted">Smart Scan always tries the free reader on this device first (works offline). AI is used only when the free reading is not sure — the totals don’t match or items are not recognised.</p>
-          <Select label="AI reading" value={f.ai} onChange={e => setF({ ...f, ai: e.target.value })} id="ss-ai" options={[
-            { value: 'off', label: 'Off — free reading only (Basic plan)' },
-            { value: 'auto', label: 'Free first, AI only if not sure (recommended)' },
-            { value: 'always', label: 'Always AI (most accurate, uses the AI plan)' }]} />
+          <p className="small muted">Every smart feature tries plain code on this device first (free, works offline). AI is used only when the code is not sure — for example a bill whose totals don’t match, a handwritten khata page, or a question the app’s reports don’t cover. With AI off, everything else keeps working.</p>
+          <Select label="AI" value={f.ai} onChange={e => setF({ ...f, ai: e.target.value })} id="ss-ai" options={[
+            { value: 'off', label: 'Off — free code only (Basic plan)' },
+            { value: 'auto', label: 'Code first, AI only if not sure (recommended)' },
+            { value: 'always', label: 'Bills always read by AI (most accurate)' }]} />
           <Input label="Smart Scan key (only if you set SCAN_KEY in Supabase)" value={f.scanKey} onChange={e => setF({ ...f, scanKey: e.target.value })} id="ss-key" />
           <div className="row gap-s"><Btn kind="primary" onClick={save}>Save</Btn>{f.ai !== 'off' && <Btn onClick={runTest}>Test AI reading</Btn>}{test && <span className="small">{test}</span>}</div>
         </div>
       </Card>
       <Card title="This month">
         {usage && <div className="grid g4">
-          <Stat label="Bills scanned" value={usage.bills} /><Stat label="Read free on device" value={usage.free} /><Stat label="Read by AI" value={usage.ai} /><Stat label="AI tokens used" value={num(usage.tokens)} />
+          <Stat label="Bills scanned" value={usage.bills} /><Stat label="Read free on device" value={usage.free} /><Stat label="Read by AI" value={usage.ai} /><Stat label="AI calls on this device" value={`${aiUsageThisMonth().calls} · ${num(aiUsageThisMonth().tokens)} tokens`} />
         </div>}
       </Card>
       <Card title="Turn on AI reading (one time, in Supabase)" actions={<Btn size="sm" onClick={copy}>Copy function code</Btn>}>
         <ol className="small" style={{ lineHeight: 1.7, paddingLeft: 18 }}>
-          <li>Supabase › your project › <b>Edge Functions</b> › <b>Deploy a new function</b> › “Via editor”. Name it <b>read-bill</b>.</li>
+          <li>Supabase › your project › <b>Edge Functions</b> › <b>Deploy a new function</b> › “Via editor”. Name it <b>dataflow-ai</b>.</li>
           <li>Paste the function code (button above). In the function settings turn <b>Verify JWT</b> off. Deploy.</li>
           <li>Edge Functions › <b>Secrets</b>: add <b>XAI_API_KEY</b> = your key from the xAI console (type it there yourself — never in chat or in this app).</li>
           <li>Optional secrets: <b>AI_MODEL</b> (exact model name from the xAI console), <b>AI_PROVIDER</b> (xai, anthropic, gemini or openai — to switch companies later), <b>SCAN_KEY</b> (any password; then type the same here).</li>

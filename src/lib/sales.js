@@ -1,6 +1,6 @@
 // Saving a bill: number it, chain it (tamper-proof), move stock by batch, update loyalty,
 // post the accounts, and queue it for cloud sync.
-import { db, getSettings, setSetting } from '../db.js';
+import { db, syncCounter, getSettings, setSetting } from '../db.js';
 import { uid, sha256, fyOf, r2, sum } from './util.js';
 import { invoiceNumber } from './billing.js';
 import { moveStock } from './stock.js';
@@ -13,12 +13,13 @@ export const TIERS = [
 ];
 export const tierFor = spend => [...TIERS].reverse().find(t => spend >= t.min) || TIERS[0];
 
+// Each device keeps its own tamper-proof chain (rows synced from other devices carry _oc).
 export async function audit(action, detail, user) {
-  const last = await db.audit.orderBy('ts').last();
+  const last = await db.audit.orderBy('ts').reverse().filter(a => !a._oc).first();
   const ts = Date.now();
   const prev = last?.hash || 'GENESIS';
   const hash = await sha256(prev + '|' + ts + '|' + action + '|' + JSON.stringify(detail || {}));
-  await db.audit.add({ id: uid('a_'), ts, action, detail, userId: user?.id || 'system', userName: user?.name || 'System', prevHash: prev, hash });
+  await db.audit.add({ id: uid('a_'), ts, action, detail, userId: user?.id || 'system', userName: user?.name || 'System', dev: syncCounter(), prevHash: prev, hash });
 }
 
 async function nextInvoiceNo(settings, ts) {

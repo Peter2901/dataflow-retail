@@ -2,7 +2,7 @@
 // shared `records` table and pulls everyone else's. Stock is kept correct by
 // replaying stock-move events, so two counters selling at once never overwrite
 // each other. Billing never waits for this — it runs in the background.
-import { db, SYNC_TABLES, getSettings, setSyncCounter } from '../db.js';
+import { db, SYNC_TABLES, getSettings, setSyncCounter, isSharedSetting, settingsDirty, clearSettingsDirty, markSettingsDirty } from '../db.js';
 import { uid } from './util.js';
 import SETUP_SQL_TEXT from '../../supabase/setup.sql?raw';
 
@@ -28,6 +28,7 @@ async function cfg() {
     enabled: !!s.syncEnabled,
     store: s.currentStore || 'S1',
     counter: s.terminal || 'T1',
+    phone: s.deviceMode === 'mobile',
   };
 }
 
@@ -84,9 +85,26 @@ async function pushTable(c, t) {
   return rows.length;
 }
 
+// Store settings (name, GSTIN, rules…) as one shared row, sent when someone saves them.
+async function pushSettings(c) {
+  const at = settingsDirty();
+  if (!at) return;
+  const values = Object.fromEntries((await db.settings.toArray()).filter(r => isSharedSetting(r.key)).map(r => [r.key, r.value]));
+  const res = await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
+    method: 'POST', headers: { ...headers(c.key), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ table_name: 'storeSettings', id: c.store, store_id: c.store, counter: c.counter, data: { values, at }, updated_at: at }]),
+  });
+  if (!res.ok) throw new Error('push settings ' + res.status);
+  clearSettingsDirty(at);
+}
+
 async function applyRow(c, row) {
   if (row.counter === c.counter) return;          // our own row coming back
   const d = row.data || {};
+  if (row.table_name === 'storeSettings') {
+    for (const [k, v] of Object.entries(d.values || {})) if (isSharedSetting(k)) await db.settings.put({ key: k, value: v });
+    return;
+  }
   if (row.table_name === 'stockMoves') {
     const sid = row.id;
     if (await db.appliedMoves.get(sid)) return;
@@ -164,10 +182,11 @@ export async function syncOnce() {
   running = true; status.busy = true; emit();
   try {
     setSyncCounter(c.counter);
+    await pushSettings(c);
     for (const t of SYNC_TABLES) await pushTable(c, t);
     await pull(c);
     status.pending = await countPending(c);
-    await heartbeat(c);
+    if (!c.phone) await heartbeat(c);          // phones are not counters
     status.lastSync = Date.now(); status.error = '';
   } catch (e) {
     status.error = String(e.message || e);
@@ -178,6 +197,7 @@ export async function syncOnce() {
 
 // Stamp every local row as new so this counter seeds the shared database once.
 export async function pushEverything() {
+  markSettingsDirty();
   const now = Date.now();
   for (const t of SYNC_TABLES) {
     await db[t].toCollection().modify(r => { if (!r._oc) r.updatedAt = now; });
@@ -214,3 +234,47 @@ export async function ownerSetupCode() {
   return 'DFR1.' + b64;
 }
 
+
+// Before the first phone connects: the main counter sends everything once (users, staff,
+// shifts, audit log, store settings…), so the phone app gets the full store.
+export async function prepareForPhones() {
+  const done = await metaGet('phonesReady');
+  if (done) return false;
+  await pushEverything();
+  if (!status.error) await metaSet('phonesReady', Date.now());
+  return true;
+}
+
+/**
+ * Phone app (or a new device): wipe local data and connect to the store with the setup code.
+ * Everything, including users and store settings, then comes down from the cloud.
+ */
+export async function connectDevice({ url, key, store, name }, { terminal = 'M1', deviceMode = 'mobile' } = {}) {
+  const { resetAll } = await import('../db.js');
+  await resetAll();
+  const put = (k, v) => db.settings.put({ key: k, value: v });
+  await put('syncUrl', url); await put('syncKey', key); await put('syncEnabled', true);
+  await put('currentStore', store); await put('terminal', terminal); await put('deviceMode', deviceMode);
+  await put('storeName', name || 'My store'); await put('sampleData', false); await put('stateCode', '');
+  await syncOnce();
+}
+
+export async function pullUntilQuiet(maxRounds = 30, onRound) {
+  for (let i = 0; i < maxRounds; i++) {
+    const c = await cfg();
+    const n = await pull(c);
+    onRound?.(i, n);
+    if (n < 1000) break;
+  }
+}
+
+/** Which counters are online (heartbeat within 95 s). Empty when sync is off. */
+export async function counterStatus() {
+  const c = await cfg();
+  if (!c.enabled || !c.url || !c.key || !navigator.onLine) return [];
+  try {
+    const res = await fetch(`${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&table_name=eq.counter_status&select=data,updated_at`, { headers: headers(c.key) });
+    if (!res.ok) return [];
+    return (await res.json()).map(r => ({ counter: r.data?.counter, user: r.data?.user, online: Date.now() - Number(r.updated_at || r.data?.at || 0) < 95000 })).filter(x => x.counter).sort((a, b) => a.counter.localeCompare(b.counter));
+  } catch { return []; }
+}

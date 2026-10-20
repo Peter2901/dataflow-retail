@@ -18,6 +18,11 @@ import Accounts from './pages/Accounts.jsx';
 import Reports from './pages/Reports.jsx';
 import Staff from './pages/Staff.jsx';
 import Assistant from './pages/Assistant.jsx';
+import Smart from './pages/Smart.jsx';
+import { Connect, Downloading } from './ui/Connect.jsx';
+
+// The Android phone app is the full store app without the billing counter.
+export const PHONE_BUILD = import.meta.env.MODE === 'mobile';
 import Audit from './pages/Audit.jsx';
 import Setup from './pages/Setup.jsx';
 import Settings from './pages/Settings.jsx';
@@ -39,6 +44,7 @@ const ICON = {
   accounts: '<path d="M4 21V10M10 21V4M16 21v-8M22 21H2"/>',
   reports: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
   staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  smart: '<path d="M12 2l2.4 5.6L20 8.3l-4.3 3.9L17 18l-5-3-5 3 1.3-5.8L4 8.3l5.6-.7Z"/>',
   assistant: '<path d="M12 3a7 7 0 0 1 7 7c0 3-2 4-2 6H7c0-2-2-3-2-6a7 7 0 0 1 7-7Z"/><path d="M9 21h6"/>',
   audit: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path d="M9 12l2 2 4-4"/>',
   setup: '<path d="M4 7h16M4 12h16M4 17h10"/><circle cx="18" cy="17" r="2.3"/>',
@@ -51,6 +57,7 @@ const NavIcon = ({ id }) => (
 export const NAV = [
   { group: 'Today', items: [
     { id: 'dashboard', label: 'Dashboard', roles: ['owner', 'manager', 'accountant'], el: Dashboard },
+    { id: 'smart', label: 'Smart insights', roles: ['owner', 'manager', 'accountant'], el: Smart },
     { id: 'pos', label: 'Billing counter', roles: ['owner', 'manager', 'cashier'], el: POS },
     { id: 'orders', label: 'WhatsApp orders', roles: ['owner', 'manager', 'cashier'], el: Orders, badge: 'orders' },
   ] },
@@ -71,7 +78,7 @@ export const NAV = [
     { id: 'staff', label: 'Staff & salary', roles: ['owner', 'manager'], el: Staff },
   ] },
   { group: 'Control', items: [
-    { id: 'assistant', label: 'AI assistant', roles: ['owner', 'manager', 'accountant'], el: Assistant },
+    { id: 'assistant', label: 'Ask your shop', roles: ['owner', 'manager', 'accountant'], el: Assistant },
     { id: 'audit', label: 'Security & audit', roles: ['owner'], el: Audit },
     { id: 'setup', label: 'Import & setup', roles: ['owner', 'manager'], el: Setup },
     { id: 'settings', label: 'Settings', roles: ['owner'], el: Settings },
@@ -132,7 +139,7 @@ export default function App() {
   const settings = useLive(() => getSettings(), [], null);
 
   useEffect(() => {
-    ensureSeeded().then(() => setReady(true)).catch(e => { console.error(e); setReady(true); });
+    (PHONE_BUILD ? Promise.resolve() : ensureSeeded()).then(() => setReady(true)).catch(e => { console.error(e); setReady(true); });
     const on = () => setOnline(true), off = () => setOnline(false);
     window.addEventListener('online', on); window.addEventListener('offline', off);
     // Inside a claude.ai artifact, file saving goes through the downloads capability.
@@ -151,6 +158,7 @@ export default function App() {
     else document.documentElement.removeAttribute('data-theme');
   }, [settings?.theme]);
 
+  const userCount = useLive(() => db.users.count(), [], null);
   const counts = useLive(async () => {
     const orders = await db.orders.where('status').anyOf('new', 'packing', 'ready').count();
     const today = localISO(new Date());
@@ -164,10 +172,14 @@ export default function App() {
     return { orders, followups: fu, expiry: exp, pending };
   }, [settings?.currentStore], {});
 
-  if (!ready || !settings) return <div className="login"><div className="login-box"><p>Opening the store…</p></div></div>;
-  if (!user) return <Login settings={settings} onLogin={u => { setUser(u); setPage(u.role === 'cashier' ? 'pos' : 'dashboard'); }} />;
+  if (!ready || !settings || userCount === null) return <div className="login"><div className="login-box"><p>Opening the store…</p></div></div>;
+  const phone = PHONE_BUILD || settings.deviceMode === 'mobile';
+  if (PHONE_BUILD && !settings.syncUrl) return <ToastHost><Connect /></ToastHost>;
+  if (phone && !userCount) return <ToastHost><Downloading /></ToastHost>;
+  if (!user) return <Login settings={settings} onLogin={u => { setUser(u); setPage(u.role === 'cashier' ? (phone ? 'orders' : 'pos') : 'dashboard'); }} />;
 
-  const items = NAV.flatMap(g => g.items).filter(i => i.roles.includes(user.role));
+  const visible = i => i.roles.includes(user.role) && !(phone && i.id === 'pos');
+  const items = NAV.flatMap(g => g.items).filter(visible);
   const current = items.find(i => i.id === page) || items[0];
   const Page = current.el;
   const go = (id, p = null) => { setPage(id); setParam(p); setMenu(false); };
@@ -188,7 +200,7 @@ export default function App() {
             <div className="brand"><div className="brand-mark">DF</div><div><div className="brand-name">DataFlow Retail</div><div className="brand-store">{settings.storeName}</div></div></div>
             <nav className="nav">
               {NAV.map(g => {
-                const vis = g.items.filter(i => i.roles.includes(user.role));
+                const vis = g.items.filter(visible);
                 if (!vis.length) return null;
                 return (
                   <div key={g.group}>

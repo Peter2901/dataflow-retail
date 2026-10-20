@@ -10,7 +10,8 @@
     "build:artifact": "npm run build && node scripts/artifact.mjs",
     "desktop": "npm run build && electron .",
     "build:owner": "vite build --mode owner && node -e \"require('fs').copyFileSync('dist-owner/owner.html','dist-owner/index.html')\"",
-    "ocr": "node scripts/copy-ocr.cjs"
+    "ocr": "node scripts/copy-ocr.cjs",
+    "build:mobile": "node scripts/copy-ocr.cjs && vite build --mode mobile"
   },
   "dependencies": {
     "dexie": "^4.0.8",

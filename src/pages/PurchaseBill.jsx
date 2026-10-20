@@ -9,6 +9,8 @@ import { loadPurchaseContext, checkBill, lineCalc, billCalc } from '../lib/purch
 import { scanBill, smartScanConfig, supplierByGstin } from '../lib/billreader.js';
 import { isStoreBarcode } from '../lib/barcode.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
+import { voiceToLine, listen, speechSupported } from '../lib/voice.js';
+import { loadAliases } from '../lib/match.js';
 import Stickers from '../ui/Stickers.jsx';
 
 export const emptyLine = () => ({ key: uid('pl'), productId: '', name: '', text: '', match: '', qty: '', free: 0, pack: 1, unit: '', rate: '', disc: 0, gst: 5, mrp: '', batchNo: '', expiry: '', mfg: '', hsn: '', amount: '' });
@@ -42,6 +44,8 @@ export default function PurchaseBill({ draft, onClose }) {
   const [aiMode, setAiMode] = useState('off');
   const [code, setCode] = useState('');
   const codeRef = useRef();
+  const [said, setSaid] = useState('');
+  const [vlang, setVlang] = useState(() => { try { return localStorage.getItem('dfr_voice_lang') || 'hi-IN'; } catch { return 'hi-IN'; } });
 
   useEffect(() => { loadPurchaseContext(storeId).then(setCtx); smartScanConfig().then(c => setAiMode(c.ai)); }, [storeId]);
   const pm = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
@@ -119,6 +123,44 @@ export default function PurchaseBill({ draft, onClose }) {
     codeRef.current?.focus();
   };
 
+  // Voice / quick-typed line: "amul butter 20 piece 52 rupaye". Code first, AI only if the code can't tell.
+  const addSpoken = async text => {
+    const t = (text ?? said).trim(); if (!t) return;
+    setBusy('Understanding the line…');
+    try {
+      const r = await voiceToLine(t, { supplierId, products, aliases: await loadAliases(db) });
+      const p = pm[r.match.productId]; const h = p ? lastFrom(p.id) : null;
+      const pack = r.parsed.unit === 'CS' ? ((h?.pack > 1 ? h.pack : 0) || p?.casePack || 1) : 1;
+      const perPiece = h ? h.rate / (h.pack || 1) : (p?.cost || 0);       // last rate, turned into this unit
+      setLines(ls => [...ls.filter(l => l.productId || l.text || l.qty), { ...emptyLine(), productId: r.match.productId || '', name: p?.name || '', text: r.parsed.text, match: r.match.match,
+        qty: r.parsed.qty ?? '', free: r.parsed.free || 0, unit: r.parsed.unit || '', pack,
+        rate: r.parsed.rate ?? (perPiece ? Math.round(perPiece * pack * 100) / 100 : ''), disc: h?.disc || 0, gst: p?.gst ?? 5 }]);
+      setSaid('');
+      if (!p) toast(`Could not find “${r.parsed.text}”. Pick the product in the new line.`, 'warn');
+      else if (r.method === 'ai') toast('Line understood with AI help. Check it.', 'warn');
+    } catch (e) { toast(e.message, 'bad'); }
+    setBusy('');
+  };
+  const speak = async () => {
+    try { setBusy('Listening…'); const t = await listen(vlang); setSaid(t); setBusy(''); await addSpoken(t); } catch (e) { setBusy(''); toast(e.message, 'bad'); }
+  };
+
+  // Ordered vs received (when goods arrive for a purchase order).
+  const poCheck = useMemo(() => {
+    if (!po) return [];
+    const got = {};
+    lines.forEach(l => { if (l.productId) got[l.productId] = (got[l.productId] || 0) + lineCalc(l).pieces; });
+    const out = [];
+    for (const l of po.lines) {
+      const g = got[l.productId] || 0;
+      if (g < l.qty) out.push({ tone: g ? 'warn' : 'bad', text: `${l.name}: ordered ${l.qty}, received ${g}${g ? ` (short ${l.qty - g})` : ' — not delivered'}.` });
+      else if (g > l.qty) out.push({ tone: 'info', text: `${l.name}: ordered ${l.qty}, received ${g} (extra ${g - l.qty}).` });
+    }
+    const ordered = new Set(po.lines.map(l => l.productId));
+    lines.filter(l => l.productId && !ordered.has(l.productId)).forEach(l => out.push({ tone: 'info', text: `${l.name || l.text}: not in the order.` }));
+    return out;
+  }, [po, lines]);
+
   const save = async () => {
     if (!supplier) { toast('Choose the supplier.', 'bad'); return; }
     if (lines.some(l => Number(l.qty) > 0 && !l.productId)) { toast('Some lines are not matched to a product. Pick the product, quick-add it, or remove the line.', 'bad'); return; }
@@ -162,6 +204,14 @@ export default function PurchaseBill({ draft, onClose }) {
           {scan.aiError && ` AI reading failed: ${scan.aiError}`}
           {' '}Green = sure · yellow = please check · red = pick the product.
         </p>}
+        <form className="row gap-s wrap" onSubmit={e => { e.preventDefault(); addSpoken(); }}>
+          <input className="input grow" style={{ minWidth: 240 }} value={said} onChange={e => setSaid(e.target.value)} placeholder="Say or type a line: amul butter 20 piece 52 rupaye" aria-label="Spoken line" />
+          <select className="input" style={{ width: 110 }} value={vlang} onChange={e => { setVlang(e.target.value); try { localStorage.setItem('dfr_voice_lang', e.target.value); } catch { /* ignore */ } }} aria-label="Voice language">
+            <option value="hi-IN">हिंदी</option><option value="or-IN">ଓଡ଼ିଆ</option><option value="en-IN">English</option></select>
+          {speechSupported() && <Btn type="button" onClick={speak} disabled={!!busy} title="Speak the line">🎤 Speak</Btn>}
+          <Btn type="submit" disabled={!said.trim() || !!busy}>Add line</Btn>
+        </form>
+        {poCheck.length > 0 && <div className="note note-warn small"><b>Ordered vs received</b><Issues list={poCheck} /></div>}
         {newSup && <p className="note note-warn small">The bill is from GSTIN <b>{newSup.gstin}</b>{newSup.name ? ` (${newSup.name})` : ''}, which is not in your suppliers. <Btn size="sm" onClick={addSupplier}>Add this supplier</Btn></p>}
         <div className="grid g4">
           <Select label="Supplier" value={supplierId} onChange={e => setSupplierId(e.target.value)} options={[{ value: '', label: 'Choose supplier' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} id="pb-sup" />
@@ -169,7 +219,7 @@ export default function PurchaseBill({ draft, onClose }) {
           <Input label="Bill date" type="date" value={date} onChange={e => setDate(e.target.value)} id="pb-date" />
           <Input label="Bill total as printed (₹)" type="number" step="0.01" value={printedTotal} onChange={e => setPrintedTotal(e.target.value)} hint="Typed or read — used to check the lines" id="pb-total" />
         </div>
-        {checks && (checks.bill.length > 0) && <div className={`note small ${badCount ? 'note-bad' : warnCount ? 'note-warn' : ''}`}><Issues list={checks.bill} /></div>}
+        {checks && checks.bill.length > 0 && (scan || lines.some(l => l.productId || l.text || l.qty)) && <div className={`note small ${badCount ? 'note-bad' : warnCount ? 'note-warn' : ''}`}><Issues list={checks.bill} /></div>}
         <div className="table-wrap"><table className="tbl">
           <thead><tr><th>Product</th><th>Qty</th><th>Free</th><th title="Pieces in one billed unit (case/box)">Pcs/unit</th><th>Rate (before GST)</th><th>Disc %</th><th>GST</th><th>MRP</th><th>Batch</th><th>Expiry</th><th className="num">Amount</th><th /></tr></thead>
           <tbody>{lines.map(l => {
@@ -202,7 +252,7 @@ export default function PurchaseBill({ draft, onClose }) {
           })}</tbody>
         </table></div>
         <div className="row gap-s"><Btn size="sm" onClick={() => setLines(ls => [...ls, emptyLine()])}>Add line</Btn>
-          {checks && <span className="small muted">{badCount ? <Badge tone="bad">{badCount} to fix</Badge> : null} {warnCount ? <Badge tone="warn">{warnCount} to check</Badge> : null} {!badCount && !warnCount && lines.some(l => l.productId) ? <Badge tone="ok">All checks passed</Badge> : null}</span>}
+          {checks && lines.some(l => l.productId || l.text || l.qty) && <span className="small muted">{badCount ? <Badge tone="bad">{badCount} to fix</Badge> : null} {warnCount ? <Badge tone="warn">{warnCount} to check</Badge> : null} {!badCount && !warnCount && lines.some(l => l.productId) ? <Badge tone="ok">All checks passed</Badge> : null}</span>}
         </div>
       </div>
       {quick && <QuickAdd title={quick.barcode ? `New product (barcode ${quick.barcode})` : 'Add as a new product'} barcode={quick.barcode || ''} name={quick.name || ''} mrp={quick.mrp || ''} gst={quick.gst ?? 5} cost={quick.cost || ''} askStock={false} allowNext={false}

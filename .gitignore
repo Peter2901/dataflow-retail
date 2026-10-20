@@ -9,3 +9,4 @@ dist-owner
 android
 package-lock.json
 public/ocr
+dist-mobile

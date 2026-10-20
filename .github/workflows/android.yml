@@ -1,4 +1,4 @@
-name: Android owner app
+name: Android phone app
 
 on:
   push:
@@ -18,8 +18,8 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - run: npm install
-      - name: Build the owner web app
-        run: npm run build:owner
+      - name: Build the store app for phones (everything except the billing counter)
+        run: npm run build:mobile
       - name: Create the Android project
         run: npx cap add android
       - name: App icon and splash
@@ -43,7 +43,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: owner-app
-          name: DataFlow Owner (Android)
-          body: Owner phone app for Android. Install DataFlow-Owner.apk (allow "install unknown apps" for your browser or WhatsApp).
+          name: DataFlow Retail phone app (Android)
+          body: DataFlow Retail for Android phones — the full store app except the billing counter. Install DataFlow-Owner.apk (allow "install unknown apps" for your browser or WhatsApp). Connect it with the setup code from the counter (Settings › Cloud sync › Phone app).
           files: DataFlow-Owner.apk
           make_latest: false
