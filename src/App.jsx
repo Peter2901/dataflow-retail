@@ -3,7 +3,7 @@ import { db, ensureSeeded, getSettings } from './db.js';
 import { AppCtx, ToastHost, ApproveHost, ConfirmHost, useLive } from './ui/kit.jsx';
 import { hashPin, daysBetween, localISO } from './lib/util.js';
 import { audit } from './lib/sales.js';
-import { startSync, getStatus, onSyncStatus } from './lib/sync.js';
+import { startSync, getStatus, onSyncStatus, setSyncUser } from './lib/sync.js';
 import Dashboard from './pages/Dashboard.jsx';
 import POS from './pages/POS.jsx';
 import Orders from './pages/Orders.jsx';
@@ -142,6 +142,8 @@ export default function App() {
     startSync();
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); offSync(); };
   }, []);
+
+  useEffect(() => { setSyncUser(user?.name || ''); }, [user]);
 
   useEffect(() => {
     const t = settings?.theme;

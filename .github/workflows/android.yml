@@ -1,0 +1,45 @@
+name: Android owner app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm install
+      - name: Build the owner web app
+        run: npm run build:owner
+      - name: Create the Android project
+        run: npx cap add android
+      - name: App icon and splash
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0F1B2D' --iconBackgroundColorDark '#0F1B2D' --splashBackgroundColor '#0F1B2D' --splashBackgroundColorDark '#0F1B2D'
+      - run: npx cap sync android
+      - name: Use the fixed signing key (so updates install over the old app)
+        run: mkdir -p ~/.android && cp android-signing/debug.keystore ~/.android/debug.keystore
+      - name: Build APK
+        run: cd android && ./gradlew assembleDebug --no-daemon
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk DataFlow-Owner.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: DataFlow-Owner-apk, path: DataFlow-Owner.apk }
+      - name: Remove the previous APK from the release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release delete-asset owner-app DataFlow-Owner.apk -y -R ${{ github.repository }} || true
+      - name: Publish (fixed link, replaced on every build)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: owner-app
+          name: DataFlow Owner (Android)
+          body: Owner phone app for Android. Install DataFlow-Owner.apk (allow "install unknown apps" for your browser or WhatsApp).
+          files: DataFlow-Owner.apk
+          make_latest: false

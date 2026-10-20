@@ -8,7 +8,8 @@
     "preview": "vite preview --port 8080",
     "start": "vite preview --host --port 8080",
     "build:artifact": "vite build && node scripts/artifact.mjs",
-    "desktop": "vite build && electron ."
+    "desktop": "vite build && electron .",
+    "build:owner": "vite build --mode owner && node -e \"require('fs').copyFileSync('dist-owner/owner.html','dist-owner/index.html')\""
   },
   "dependencies": {
     "dexie": "^4.0.8",
@@ -22,7 +23,11 @@
     "@vitejs/plugin-react": "^4.3.3",
     "vite": "^5.4.10",
     "electron": "33.2.1",
-    "electron-builder": "25.1.8"
+    "electron-builder": "25.1.8",
+    "@capacitor/cli": "6.2.0",
+    "@capacitor/core": "6.2.0",
+    "@capacitor/android": "6.2.0",
+    "@capacitor/assets": "3.0.5"
   },
   "private": true,
   "type": "module",

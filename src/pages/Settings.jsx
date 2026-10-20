@@ -3,7 +3,9 @@ import { db, setSetting, resetAll } from '../db.js';
 import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Modal, Input, Select, Card, Tabs, Badge } from '../ui/kit.jsx';
 import { hashPin, validGSTIN, uid, fyOf } from '../lib/util.js';
 import { audit } from '../lib/sales.js';
-import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL } from '../lib/sync.js';
+import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL } from '../lib/sync.js';
+import QRCode from 'qrcode';
+import { waLink } from '../lib/util.js';
 
 export default function Settings() {
   const [tab, setTab] = useState('store');
@@ -145,12 +147,49 @@ function SyncSettings() {
         </div>
         {st.error ? <p className="small" style={{ color: 'var(--bad)', marginTop: 10 }}>Last error: {st.error}</p> : null}
       </Card>
+      {settings.syncUrl && settings.syncKey && <OwnerPhone />}
       <Card title="One-time setup in Supabase">
         <p className="small muted" style={{ marginTop: 0 }}>In Supabase open <b>SQL Editor</b>, paste this once and press <b>Run</b>. It makes the shared table the app uses.</p>
         <pre className="mono" style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, padding: 12, overflowX: 'auto', fontSize: 12, whiteSpace: 'pre-wrap' }}>{SETUP_SQL}</pre>
         <Btn onClick={copySql} style={{ marginTop: 8 }}>Copy SQL</Btn>
       </Card>
     </div>
+  );
+}
+
+// Owner's phone: live view of sales, counters, stock and bills (reads the cloud only).
+function OwnerPhone() {
+  const { settings } = useApp();
+  const toast = useToast();
+  const [code, setCode] = useState('');
+  const [qr, setQr] = useState('');
+  useEffect(() => {
+    ownerSetupCode().then(c => {
+      setCode(c);
+      if (c) QRCode.toDataURL(`${OWNER_WEB_URL}#setup=${c}`, { margin: 1, width: 220 }).then(setQr).catch(() => setQr(''));
+    });
+  }, [settings.syncUrl, settings.syncKey, settings.currentStore, settings.storeName]);
+  if (!code) return null;
+  const msg = `DataFlow Owner app for ${settings.storeName || 'the store'}\n\n1) Install the Android app: ${OWNER_APK_URL}\n2) Open it and paste this setup code:\n\n${code}\n\nOr open on any phone (no install): ${OWNER_WEB_URL}#setup=${code}`;
+  const copy = () => navigator.clipboard?.writeText(code).then(() => toast('Setup code copied.')).catch(() => toast('Select the code and copy it.', 'bad'));
+  return (
+    <Card title="Owner phone app (live sales on Android)">
+      <div className="row gap-s" style={{ alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {qr && <img src={qr} alt="QR code: open the owner app on a phone" width="150" height="150" style={{ borderRadius: 8, background: '#fff', padding: 4 }} />}
+        <div className="stack" style={{ flex: 1, minWidth: 240 }}>
+          <p className="small muted" style={{ margin: 0 }}>
+            The owner sees today’s sales, every counter’s status, stock alerts and bills, refreshed every 15 seconds. It only reads; it cannot change anything.
+            <b> Scan the QR</b> with the phone camera to open it right away, or send the Android app and setup code on WhatsApp.
+          </p>
+          <div className="row gap-s" style={{ flexWrap: 'wrap' }}>
+            <a className="btn btn-primary" href={waLink(settings.ownerPhone || '', msg)} target="_blank" rel="noreferrer">Share on WhatsApp</a>
+            <Btn onClick={copy}>Copy setup code</Btn>
+            <a className="btn" href={OWNER_APK_URL} target="_blank" rel="noreferrer">Download Android app</a>
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>The setup code contains this store’s cloud key. Share it only with the owner.</p>
+        </div>
+      </div>
+    </Card>
   );
 }
 

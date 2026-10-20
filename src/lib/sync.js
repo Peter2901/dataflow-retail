@@ -4,6 +4,12 @@
 // each other. Billing never waits for this — it runs in the background.
 import { db, SYNC_TABLES, getSettings, setSyncCounter } from '../db.js';
 import { uid } from './util.js';
+import SETUP_SQL_TEXT from '../../supabase/setup.sql?raw';
+
+// Who is logged in on this counter (shown in the owner app).
+let syncUser = '';
+export const setSyncUser = name => { syncUser = name || ''; };
+let lastBeat = 0;
 
 const r3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
 
@@ -114,7 +120,7 @@ async function pull(c) {
   let cur = await metaGet('pullCur');
   let hi = Math.max(prevHi, cur), pages = 0, more = false, n = 0;
   while (pages < 10) {
-    const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,counter,data,seq`;
+    const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&table_name=neq.counter_status&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,counter,data,seq`;
     const res = await fetch(url, { headers: headers(c.key) });
     if (!res.ok) throw new Error('pull ' + res.status);
     const rows = await res.json();
@@ -127,6 +133,19 @@ async function pull(c) {
   await metaSet('pullCur', nextCur);
   await metaSet('pullPrevHi', hi);
   return n;
+}
+
+// Every 30 s: "this counter is alive", so the owner app can show online/offline
+// even when no bills are being made. Counters never download these rows.
+async function heartbeat(c, force = false) {
+  if (!force && Date.now() - lastBeat < 30000) return;
+  lastBeat = Date.now();
+  await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
+    method: 'POST',
+    headers: { ...headers(c.key), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify([{ table_name: 'counter_status', id: `${c.store}:${c.counter}`, store_id: c.store, counter: c.counter,
+      updated_at: Date.now(), data: { counter: c.counter, user: syncUser, pending: status.pending, at: Date.now() } }]),
+  });
 }
 
 async function countPending(c) {
@@ -148,6 +167,7 @@ export async function syncOnce() {
     for (const t of SYNC_TABLES) await pushTable(c, t);
     await pull(c);
     status.pending = await countPending(c);
+    await heartbeat(c);
     status.lastSync = Date.now(); status.error = '';
   } catch (e) {
     status.error = String(e.message || e);
@@ -177,25 +197,20 @@ export function startSync() {
 
 export function stopSync() { if (timer) { clearInterval(timer); timer = null; } }
 
-// SQL the user pastes once into Supabase (SQL editor) to create the shared table.
-export const SETUP_SQL = `create table if not exists records (
-  table_name text not null,
-  id text not null,
-  store_id text,
-  counter text,
-  data jsonb,
-  updated_at bigint,
-  seq bigint,
-  primary key (table_name, id)
-);
--- The server numbers every saved row, so counters never depend on their own clocks.
-create sequence if not exists records_seq;
-create or replace function records_bump_seq() returns trigger language plpgsql set search_path = public as $$
-begin new.seq := nextval('records_seq'); return new; end $$;
-drop trigger if exists records_seq_trg on records;
-create trigger records_seq_trg before insert or update on records for each row execute function records_bump_seq();
-create index if not exists records_pull_seq on records (store_id, seq);
-alter table records enable row level security;
-create policy "app read" on records for select using (true);
-create policy "app insert" on records for insert with check (true);
-create policy "app update" on records for update using (true) with check (true);`;
+// SQL the user pastes once into Supabase (SQL editor). Kept in supabase/setup.sql.
+export const SETUP_SQL = SETUP_SQL_TEXT;
+
+// Owner phone app: where to get it, and a setup code (URL + key + store) so nothing
+// has to be typed on the phone.
+export const OWNER_WEB_URL = 'https://peter2901.github.io/dataflow-retail/owner.html';
+export const OWNER_APK_URL = 'https://github.com/Peter2901/dataflow-retail/releases/download/owner-app/DataFlow-Owner.apk';
+
+export async function ownerSetupCode() {
+  const c = await cfg();
+  if (!c.url || !c.key) return '';
+  const s = await getSettings();
+  const json = JSON.stringify({ u: c.url, k: c.key, s: c.store, n: s.storeName || '' });
+  const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return 'DFR1.' + b64;
+}
+
