@@ -3,31 +3,35 @@
   "version": "1.0.0",
   "description": "Offline-first supermarket billing, stock, GST, accounts and CRM that runs in the browser",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/copy-ocr.cjs && vite",
+    "build": "node scripts/copy-ocr.cjs && vite build",
     "preview": "vite preview --port 8080",
     "start": "vite preview --host --port 8080",
-    "build:artifact": "vite build && node scripts/artifact.mjs",
-    "desktop": "vite build && electron .",
-    "build:owner": "vite build --mode owner && node -e \"require('fs').copyFileSync('dist-owner/owner.html','dist-owner/index.html')\""
+    "build:artifact": "npm run build && node scripts/artifact.mjs",
+    "desktop": "npm run build && electron .",
+    "build:owner": "vite build --mode owner && node -e \"require('fs').copyFileSync('dist-owner/owner.html','dist-owner/index.html')\"",
+    "ocr": "node scripts/copy-ocr.cjs"
   },
   "dependencies": {
     "dexie": "^4.0.8",
     "jsbarcode": "^3.11.6",
+    "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.3",
-    "vite": "^5.4.10",
-    "electron": "33.2.1",
-    "electron-builder": "25.1.8",
+    "@capacitor/android": "6.2.0",
+    "@capacitor/assets": "3.0.5",
     "@capacitor/cli": "6.2.0",
     "@capacitor/core": "6.2.0",
-    "@capacitor/android": "6.2.0",
-    "@capacitor/assets": "3.0.5"
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "vite": "^5.4.10"
   },
   "private": true,
   "type": "module",
@@ -52,6 +56,11 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "DataFlow Retail"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/tesseract.js/**",
+      "node_modules/tesseract.js-core/**",
+      "dist/ocr/**"
+    ]
   }
 }

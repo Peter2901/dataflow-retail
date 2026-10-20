@@ -4,35 +4,59 @@ import { uid, r2, sum, addDays, todayISO, localISO } from './util.js';
 import { addBatch, moveStock, daysLeft, stockMap } from './stock.js';
 import { postPurchase, postDebitNote, postPayment } from './accounts.js';
 import { audit } from './sales.js';
+import { lineCalc } from './purchaseChecks.js';
+import { aliasId } from './match.js';
 
 const nextNo = async (table, prefix) => prefix + String((await db[table].count()) + 1001);
 
-export async function savePurchase({ supplier, billNo, date, lines, storeId, user, source = 'manual', poId = null }) {
+/**
+ * Saves a supplier bill. Lines: qty and free in the supplier's unit, pack = pieces per unit,
+ * rate per unit before GST, disc = trade discount %. Stock goes in as pieces at the real
+ * landing cost (after discount and free goods). Lines read from a bill also teach the
+ * supplier memory: "what this supplier calls it" → product, and pieces per unit.
+ */
+export async function savePurchase({ supplier, billNo, date, lines, storeId, user, source = 'manual', poId = null, updateMrp = true, scan = null }) {
   const L = lines.filter(l => l.productId && Number(l.qty) > 0).map(l => {
-    const taxable = r2(Number(l.qty) * Number(l.rate));
-    return { ...l, qty: Number(l.qty), rate: Number(l.rate), gst: Number(l.gst), taxable, tax: r2((taxable * Number(l.gst)) / 100) };
+    const c = lineCalc(l);
+    return { productId: l.productId, name: l.name, text: l.text || '', hsn: l.hsn || '', unit: l.unit || '', qty: c.qty, free: c.free, pack: c.pack, rate: c.rate, disc: c.disc, gst: c.gst,
+      mrp: Number(l.mrp) || null, batchNo: l.batchNo || '', expiry: l.expiry || '', mfg: l.mfg || '', taxable: c.taxable, tax: c.tax, pieces: c.pieces, landing: r2(c.landing) };
   });
   const taxable = r2(sum(L, l => l.taxable)), tax = r2(sum(L, l => l.tax));
   const no = await nextNo('purchases', 'PUR-');
-  const pur = { id: uid('p_'), no, billNo, supplierId: supplier.id, date, storeId, lines: L, taxable, tax, total: r2(taxable + tax), paid: 0, source, poId,
+  const pur = { id: uid('p_'), no, billNo, supplierId: supplier.id, date, storeId, lines: L, taxable, tax, total: r2(taxable + tax), paid: 0, source, poId, scan,
     dueDate: localISO(addDays(new Date(date), supplier.termsDays || 0)) };
   await db.purchases.add(pur);
   for (const l of L) {
-    await addBatch({ productId: l.productId, storeId, batchNo: l.batchNo, mfg: l.mfg, expiry: l.expiry, qty: l.qty, cost: l.rate, ref: no });
-    // Update the product's purchase rate to a weighted average so margins stay right.
+    await addBatch({ productId: l.productId, storeId, batchNo: l.batchNo, mfg: l.mfg, expiry: l.expiry, qty: l.pieces, cost: l.landing, mrp: l.mrp, ref: no });
+    // Purchase rate becomes the weighted average landing cost, so margins stay right.
     const p = await db.products.get(l.productId);
     if (p) {
       const onHand = (await stockMap(storeId))[p.id] || 0;
-      const prev = Math.max(0, onHand - l.qty);
-      const avg = onHand > 0 ? r2((prev * (p.cost || l.rate) + l.qty * l.rate) / onHand) : l.rate;
-      await db.products.update(p.id, { cost: avg, vendorId: p.vendorId || supplier.id });
+      const prev = Math.max(0, onHand - l.pieces);
+      const avg = onHand > 0 ? r2((prev * (p.cost || l.landing) + l.pieces * l.landing) / onHand) : l.landing;
+      const upd = { cost: avg, vendorId: p.vendorId || supplier.id };
+      if (!p.hsn && l.hsn) upd.hsn = l.hsn;
+      if (updateMrp && l.mrp && Math.abs(l.mrp - (p.mrp || 0)) >= 0.01) {
+        upd.mrp = l.mrp;
+        if (p.price >= (p.mrp || 0) || p.price > l.mrp) upd.price = l.mrp;   // sold at MRP before, or now above it
+        await audit('price_change', { product: p.name, from: p.price, to: upd.price ?? p.price, mrpFrom: p.mrp, mrpTo: l.mrp, ref: no }, user);
+      }
+      await db.products.update(p.id, upd);
     }
+    if (l.text) await db.itemAliases.put({ id: aliasId(supplier.id, l.text), supplierId: supplier.id, text: l.text, productId: l.productId, pack: l.pack, unit: l.unit });
   }
   if (poId) await db.purchaseOrders.update(poId, { status: 'received', purchaseId: pur.id });
   const settings = Object.fromEntries((await db.settings.toArray()).map(r => [r.key, r.value]));
   await postPurchase(pur, supplier, supplier.stateCode && supplier.stateCode !== settings.stateCode);
-  await audit('purchase', { no, supplier: supplier.name, total: pur.total }, user);
+  await audit('purchase', { no, supplier: supplier.name, total: pur.total, source }, user);
   return pur;
+}
+
+/** The supplier's last bill, as fresh draft lines (no batch/expiry) — "repeat last bill". */
+export async function lastBillLines(supplierId) {
+  const last = (await db.purchases.where('supplierId').equals(supplierId).toArray()).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  if (!last) return null;
+  return { bill: last, lines: last.lines.map(l => ({ productId: l.productId, name: l.name, text: l.text || '', unit: l.unit || '', hsn: l.hsn || '', qty: l.qty, free: l.free || 0, pack: l.pack || 1, rate: l.rate, disc: l.disc || 0, gst: l.gst, mrp: l.mrp || '' })) };
 }
 
 export async function createDebitNote({ supplier, items, reason, user }) {

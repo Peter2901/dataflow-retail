@@ -68,6 +68,28 @@ and every 8 seconds sends its new rows to one shared `records` table and pulls t
   the last change wins.
 - Code: `src/lib/sync.js`.
 
+## Purchase bills: Smart Scan, checks and barcodes
+
+**Smart Scan** (Purchases › New purchase bill › *Smart Scan bill photo*) reads a supplier bill photo, cheapest way first:
+
+1. **E-invoice QR** on the bill (if any): supplier GSTIN, bill number, date and total, exactly.
+2. **Free reading on the device** (offline OCR, `src/lib/billreader.js`; the desktop app runs it in `electron/main.cjs`).
+   It is accepted only if the lines add up to the printed total and 90% of items are recognised.
+3. **AI** only if the free reading is not sure, through the store's own Supabase function
+   `supabase/functions/read-bill` (Grok by default; switch company with the `AI_PROVIDER` secret). Settings › Smart Scan
+   turns it off / on and shows how many bills were read free vs by AI this month.
+
+The person always checks the screen (green = sure, yellow = check, red = pick) before saving.
+**Supplier memory** (`itemAliases`, synced): what each supplier calls an item, and pieces per case, learned from every saved bill.
+
+**Free checks on every bill** (`src/lib/purchaseChecks.js`): lines vs printed total, GST type vs supplier state (IGST vs
+CGST+SGST), duplicate bill, cost per piece up since last time (after discounts and free goods), missing scheme, short expiry
+measured against sales speed, cheaper supplier in the last 90 days, new MRP, selling at a loss.
+
+Also: **scan-to-receive** (scan each item as goods are unpacked), **repeat last bill**, **quick add** (5 fields; also from
+the counter when a barcode is unknown), **store barcodes** starting `02` for items without one, and **stickers**:
+50×25 mm label printer, A4 sheets (65 or 40 per page, start at any position) and shelf labels.
+
 ## Owner phone app (Android)
 
 View-only app for the owner: today's sales and profit, how customers paid, sales by hour, top items, every

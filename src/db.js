@@ -44,9 +44,15 @@ db.version(2).stores({
   appliedMoves: 'sid',
 });
 
+// v3: supplier memory — what each supplier calls an item on their bill, and how many
+// pieces are in their unit (e.g. "PARLE G 100G*12" from Shree Agency = Parle-G 100 g, 1 case = 12).
+db.version(3).stores({
+  itemAliases: 'id, supplierId, productId, updatedAt',
+});
+
 // Tables that sync to the cloud. Append-only logs and shared master data only;
 // local-only things (settings, users, shifts, held, bank lines) stay on the device.
-export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 'suppliers', 'purchases', 'sales', 'orders', 'offers', 'journal'];
+export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 'suppliers', 'purchases', 'sales', 'orders', 'offers', 'journal', 'itemAliases'];
 
 // Auto-stamp every create/update so the sync knows what is new.
 // Rows written by the sync carry `_oc` (the counter they came from) and `_seq`

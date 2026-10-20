@@ -58,7 +58,7 @@ const B = [
 
 const CUSTOMERS = [
   ['Anita Shah', '9800000001', 32000, 210], ['Rakesh Patel', '9800000002', 81000, 640], ['Meena Joshi', '9800000003', 12000, 80],
-  ['Vikram Desai', '9800000004', 5400, 30], ['Farida Khan', '9800000005', 27500, 150], ['Suresh Traders (B2B)', '9800000006', 0, 0, '24AAACS1234A1Z1'],
+  ['Vikram Desai', '9800000004', 5400, 30], ['Farida Khan', '9800000005', 27500, 150], ['Suresh Traders (B2B)', '9800000006', 0, 0, '24AAACS1234A1Z8'],
 ];
 
 export async function seedDemo(db) {
@@ -84,9 +84,9 @@ export async function seedDemo(db) {
   await ensureChart();
 
   const suppliers = [
-    { id: 'sp_1', name: 'Shree Ganesh Distributors', gstin: '24AAAFS1111A1Z5', phone: '9811111111', stateCode: '24', termsDays: 30, returnDays: 45 },
-    { id: 'sp_2', name: 'Western FMCG Agency', gstin: '27AAACW2222B1Z7', phone: '9822222222', stateCode: '27', termsDays: 21, returnDays: 60 },
-    { id: 'sp_3', name: 'DairyDay Direct', gstin: '24AABCD3333C1Z2', phone: '9833333333', stateCode: '24', termsDays: 7, returnDays: 3 },
+    { id: 'sp_1', name: 'Shree Ganesh Distributors', gstin: '24AAAFS1111A1ZA', phone: '9811111111', stateCode: '24', termsDays: 30, returnDays: 45 },
+    { id: 'sp_2', name: 'Western FMCG Agency', gstin: '27AAACW2222B1ZY', phone: '9822222222', stateCode: '27', termsDays: 21, returnDays: 60 },
+    { id: 'sp_3', name: 'DairyDay Direct', gstin: '24AABCD3333C1ZE', phone: '9833333333', stateCode: '24', termsDays: 7, returnDays: 3 },
     { id: 'sp_4', name: 'Fresh Mandi Supply', gstin: '', phone: '9844444444', stateCode: '24', termsDays: 0, returnDays: 0 },
   ];
   await db.suppliers.bulkAdd(suppliers);

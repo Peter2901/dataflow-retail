@@ -5,17 +5,20 @@ import { hashPin, validGSTIN, uid, fyOf } from '../lib/util.js';
 import { audit } from '../lib/sales.js';
 import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL } from '../lib/sync.js';
 import QRCode from 'qrcode';
-import { waLink } from '../lib/util.js';
+import { waLink, num } from '../lib/util.js';
+import { scanUsageThisMonth, readWithAI, smartScanConfig } from '../lib/billreader.js';
+import READ_BILL_CODE from '../../supabase/functions/read-bill/index.ts?raw';
 
 export default function Settings() {
   const [tab, setTab] = useState('store');
   return (
     <div className="stack">
       <PageHead title="Settings" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'sync', label: 'Cloud sync' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'store', label: 'Store & GST' }, { value: 'users', label: 'Users & PINs' }, { value: 'sync', label: 'Cloud sync' }, { value: 'scan', label: 'Smart Scan' }, { value: 'loyalty', label: 'Loyalty & credit' }, { value: 'payroll', label: 'Salary rules' }, { value: 'stores', label: 'Stores' }, { value: 'system', label: 'Look & data' }]} />
       {tab === 'store' && <StoreSettings />}
       {tab === 'users' && <Users />}
       {tab === 'sync' && <SyncSettings />}
+      {tab === 'scan' && <SmartScanSettings />}
       {tab === 'loyalty' && <LoyaltySettings />}
       {tab === 'payroll' && <PayrollSettings />}
       {tab === 'stores' && <Stores />}
@@ -281,6 +284,58 @@ function System() {
       <Card title="Start fresh">
         <p className="small muted">Removes the sample data and every bill on this computer. Users and store details are kept.</p>
         <Btn kind="danger" style={{ marginTop: 10 }} onClick={clearSamples}>Delete all data and start fresh</Btn>
+      </Card>
+    </div>
+  );
+}
+
+function SmartScanSettings() {
+  const toast = useToast();
+  const saved = useLive(async () => (await db.settings.get('smartScan'))?.value || {}, [], null);
+  const usage = useLive(() => scanUsageThisMonth(), [], null);
+  const [f, setF] = useState(null);
+  const [test, setTest] = useState('');
+  useEffect(() => { if (saved && !f) setF({ ai: saved.ai || 'off', scanKey: saved.scanKey || '' }); }, [saved, f]);
+  if (!f) return null;
+  const save = async () => { await setSetting('smartScan', f); toast('Smart Scan settings saved.'); };
+  const runTest = async () => {
+    setTest('Testing…');
+    try {
+      const c = document.createElement('canvas'); c.width = 600; c.height = 220;
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, 600, 220); x.fillStyle = '#000'; x.font = '22px Arial';
+      ['TAX INVOICE  No: T-1  Date: 01/10/2026', 'Item          Qty   Rate    Amount', 'Test Biscuit 100g  2   10.00   20.00', 'Grand Total                 21.00'].forEach((t, i) => x.fillText(t, 20, 40 + i * 45));
+      const conf = { ...(await smartScanConfig()), scanKey: f.scanKey };
+      const r = await readWithAI([c], conf);
+      setTest(`Working: ${r.provider} ${r.model} read ${r.data?.lines?.length ?? 0} line(s) using ${num((r.usage?.input || 0) + (r.usage?.output || 0))} tokens.`);
+    } catch (e) { setTest('Not working yet: ' + e.message); }
+  };
+  const copy = () => navigator.clipboard?.writeText(READ_BILL_CODE).then(() => toast('Function code copied.')).catch(() => {});
+  return (
+    <div className="stack">
+      <Card title="How bills are read">
+        <div className="stack">
+          <p className="small muted">Smart Scan always tries the free reader on this device first (works offline). AI is used only when the free reading is not sure — the totals don’t match or items are not recognised.</p>
+          <Select label="AI reading" value={f.ai} onChange={e => setF({ ...f, ai: e.target.value })} id="ss-ai" options={[
+            { value: 'off', label: 'Off — free reading only (Basic plan)' },
+            { value: 'auto', label: 'Free first, AI only if not sure (recommended)' },
+            { value: 'always', label: 'Always AI (most accurate, uses the AI plan)' }]} />
+          <Input label="Smart Scan key (only if you set SCAN_KEY in Supabase)" value={f.scanKey} onChange={e => setF({ ...f, scanKey: e.target.value })} id="ss-key" />
+          <div className="row gap-s"><Btn kind="primary" onClick={save}>Save</Btn>{f.ai !== 'off' && <Btn onClick={runTest}>Test AI reading</Btn>}{test && <span className="small">{test}</span>}</div>
+        </div>
+      </Card>
+      <Card title="This month">
+        {usage && <div className="grid g4">
+          <Stat label="Bills scanned" value={usage.bills} /><Stat label="Read free on device" value={usage.free} /><Stat label="Read by AI" value={usage.ai} /><Stat label="AI tokens used" value={num(usage.tokens)} />
+        </div>}
+      </Card>
+      <Card title="Turn on AI reading (one time, in Supabase)" actions={<Btn size="sm" onClick={copy}>Copy function code</Btn>}>
+        <ol className="small" style={{ lineHeight: 1.7, paddingLeft: 18 }}>
+          <li>Supabase › your project › <b>Edge Functions</b> › <b>Deploy a new function</b> › “Via editor”. Name it <b>read-bill</b>.</li>
+          <li>Paste the function code (button above). In the function settings turn <b>Verify JWT</b> off. Deploy.</li>
+          <li>Edge Functions › <b>Secrets</b>: add <b>XAI_API_KEY</b> = your key from the xAI console (type it there yourself — never in chat or in this app).</li>
+          <li>Optional secrets: <b>AI_MODEL</b> (exact model name from the xAI console), <b>AI_PROVIDER</b> (xai, anthropic, gemini or openai — to switch companies later), <b>SCAN_KEY</b> (any password; then type the same here).</li>
+          <li>Set “AI reading” above to “Free first, AI only if not sure”, save, and press <b>Test AI reading</b>.</li>
+        </ol>
       </Card>
     </div>
   );

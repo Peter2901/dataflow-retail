@@ -1,13 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card, Tabs, Stat } from '../ui/kit.jsx';
-import { inr, num, r2, sum, todayISO, uid, validGSTIN, waLink, daysBetween, fmtDate } from '../lib/util.js';
+import { inr, num, r2, sum, uid, validGSTIN, waLink, daysBetween, fmtDate } from '../lib/util.js';
 import { savePurchase, reorderSuggestions, createPO, poText, paySupplier } from '../lib/purchasing.js';
 import { partyBalances } from '../lib/parties.js';
-import { readAny, readSheet } from '../lib/excel.js';
-import { readBillPhoto, canReadImages } from '../lib/ai.js';
+import { readAny } from '../lib/excel.js';
 import { DEFAULT_EXPIRY } from '../lib/stock.js';
-import { GST_SLABS } from '../lib/billing.js';
+import PurchaseBill from './PurchaseBill.jsx';
 
 export default function Purchases() {
   const { param } = useApp();
@@ -22,7 +21,7 @@ export default function Purchases() {
       {tab === 'suppliers' && <Suppliers />}
       {tab === 'returns' && <Returns />}
       {tab === 'gstr2b' && <Gstr2b />}
-      {billDraft && <BillModal draft={billDraft} onClose={() => setBillDraft(null)} />}
+      {billDraft && <PurchaseBill draft={billDraft} onClose={() => setBillDraft(null)} />}
     </div>
   );
 }
@@ -35,7 +34,7 @@ function Bills({ onNew }) {
   return (
     <>
       <div className="card"><Table rows={purchases} onRow={setOpen} empty={<>No purchase bills yet. <Btn size="sm" onClick={onNew}>Add the first one</Btn></>} cols={[
-        { label: 'Bill', render: p => <><b>{p.billNo || p.no}</b><div className="small muted">{p.no} · {p.source === 'photo' ? 'read from photo' : p.source}</div></> },
+        { label: 'Bill', render: p => <><b>{p.billNo || p.no}</b><div className="small muted">{p.no} · {p.scan ? (p.scan.method === 'ai' ? 'Smart Scan (AI)' : 'Smart Scan (free)') : p.source}</div></> },
         { label: 'Supplier', render: p => sm[p.supplierId]?.name },
         { label: 'Date', render: p => fmtDate(p.date) },
         { label: 'Items', num: true, render: p => p.lines.length },
@@ -43,102 +42,10 @@ function Bills({ onNew }) {
         { label: 'Status', render: p => { const due = r2(p.total - (p.paid || 0)); if (due <= 0.5) return <Badge tone="ok">Paid</Badge>; const d = daysBetween(new Date(), new Date(p.dueDate)); return <Badge tone={d < 0 ? 'bad' : d <= 7 ? 'warn' : 'neutral'}>{inr(due, 0)} due {d < 0 ? `${-d}d ago` : `in ${d}d`}</Badge>; } },
       ]} /></div>
       {open && <Modal wide title={`${open.no} · ${sm[open.supplierId]?.name}`} onClose={() => setOpen(null)}>
-        <Table rows={open.lines} keyField="productId" cols={[{ label: 'Item', key: 'name' }, { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', key: 'expiry' }, { label: 'Qty', num: true, key: 'qty' }, { label: 'Rate', num: true, render: l => inr(l.rate) }, { label: 'GST', num: true, render: l => l.gst + '%' }, { label: 'Amount', num: true, render: l => inr(l.taxable + l.tax) }]} />
+        <Table rows={open.lines} keyField="productId" cols={[{ label: 'Item', key: 'name' }, { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', key: 'expiry' }, { label: 'Qty', num: true, render: l => <>{l.qty}{l.free ? ` + ${l.free} free` : ''}{(l.pack || 1) > 1 ? ` × ${l.pack}` : ''}</> }, { label: 'Rate', num: true, render: l => <>{inr(l.rate)}{l.disc ? ` −${l.disc}%` : ''}</> }, { label: 'Cost/pc', num: true, render: l => l.landing ? inr(l.landing) : '' }, { label: 'GST', num: true, render: l => l.gst + '%' }, { label: 'Amount', num: true, render: l => inr(l.taxable + l.tax) }]} />
         <p className="right" style={{ marginTop: 8 }}>Taxable {inr(open.taxable)} · GST {inr(open.tax)} · <b>Total {inr(open.total)}</b></p>
       </Modal>}
     </>
-  );
-}
-
-const emptyLine = () => ({ key: uid('pl'), productId: '', name: '', qty: '', rate: '', gst: 5, batchNo: '', expiry: '' });
-
-function BillModal({ draft, onClose }) {
-  const { storeId, user } = useApp();
-  const toast = useToast();
-  const products = useLive(() => db.products.toArray(), [], []);
-  const suppliers = useLive(() => db.suppliers.toArray(), [], []);
-  const photoOK = useLive(() => canReadImages(), [], false);
-  const po = draft.fromPO;
-  const [supplierId, setSupplierId] = useState(po?.supplierId || '');
-  const [billNo, setBillNo] = useState('');
-  const [date, setDate] = useState(todayISO());
-  const [lines, setLines] = useState(po ? po.lines.map(l => ({ ...emptyLine(), productId: l.productId, name: l.name, qty: l.qty, rate: l.rate, gst: l.gst })) : [emptyLine()]);
-  const [busy, setBusy] = useState('');
-  const [src, setSrc] = useState(po ? 'from order' : 'manual');
-  const pm = Object.fromEntries(products.map(p => [p.id, p]));
-  const setL = (k, patch) => setLines(ls => ls.map(l => l.key === k ? { ...l, ...patch } : l));
-  const pick = (k, id) => { const p = pm[id]; setL(k, { productId: id, name: p?.name || '', rate: p?.cost || '', gst: p?.gst ?? 5 }); };
-  const taxable = r2(sum(lines, l => Number(l.qty) * Number(l.rate) || 0));
-  const tax = r2(sum(lines, l => ((Number(l.qty) * Number(l.rate) || 0) * Number(l.gst)) / 100));
-  const missingExp = lines.filter(l => l.productId && !l.expiry && pm[l.productId]?.batchTracked);
-
-  const fromPhoto = async e => {
-    const f = e.target.files?.[0]; if (!f) return;
-    setBusy('Reading the bill…');
-    try {
-      const r = await readBillPhoto(f, products);
-      const sup = suppliers.find(s => r.supplierGstin && s.gstin === r.supplierGstin) || suppliers.find(s => r.supplierName && s.name.toLowerCase().includes(String(r.supplierName).toLowerCase().split(' ')[0]));
-      if (sup) setSupplierId(sup.id);
-      if (r.billNo) setBillNo(r.billNo);
-      if (r.date) setDate(r.date);
-      setLines((r.lines || []).map(l => ({ ...emptyLine(), productId: pm[l.productId] ? l.productId : '', name: l.name, qty: l.qty ?? '', rate: l.rate ?? '', gst: GST_SLABS.includes(l.gst) ? l.gst : 5, batchNo: l.batchNo || '', expiry: l.expiry || '' })));
-      setSrc('photo');
-      setSrc('photo'); toast('Bill read. Check every line before saving — lines without a matched product are highlighted.', 'warn');
-    } catch (err) { toast(err.message || 'Could not read the photo.', 'bad'); }
-    setBusy('');
-  };
-  const fromFile = async e => {
-    const f = e.target.files?.[0]; if (!f) return;
-    const { rows } = await readSheet(f);
-    const pick = (r, names) => { const k = Object.keys(r).find(h => names.includes(h.trim().toUpperCase())); return k ? r[k] : ''; };
-    setLines(rows.map(r => {
-      const code = String(pick(r, ['BARCODE', 'EAN', 'SKU', 'CODE', 'ITEM CODE'])).replace(/\.0$/, '');
-      const name = String(pick(r, ['ITEM', 'ITEM NAME', 'PRODUCT', 'DESCRIPTION', 'NAME']));
-      const p = products.find(x => (code && (x.barcode === code || x.id === code))) || products.find(x => name && x.name.toLowerCase() === name.toLowerCase());
-      return { ...emptyLine(), productId: p?.id || '', name: p?.name || name, qty: Number(pick(r, ['QTY', 'QUANTITY'])) || '', rate: Number(pick(r, ['RATE', 'PRICE', 'COST'])) || p?.cost || '', gst: Number(pick(r, ['GST', 'GST%', 'TAX%'])) || p?.gst || 5, batchNo: String(pick(r, ['BATCH', 'BATCH NO'])), expiry: String(pick(r, ['EXPIRY', 'EXP', 'EXPIRY DATE'])) };
-    }));
-    setSrc('file');
-    setSrc('file'); toast(`${rows.length} lines loaded from the file. Check them before saving.`);
-  };
-  const save = async () => {
-    const sup = suppliers.find(s => s.id === supplierId);
-    if (!sup) { toast('Choose the supplier.', 'bad'); return; }
-    if (lines.some(l => l.qty && !l.productId)) { toast('Some lines are not matched to a product. Pick the product or remove the line.', 'bad'); return; }
-    const pur = await savePurchase({ supplier: sup, billNo, date, lines, storeId, user, source: src, poId: po?.id });
-    toast(`${pur.no} saved. Stock, batches, expiry and GST credit updated.`); onClose();
-  };
-  return (
-    <Modal wide title={po ? `Receive goods for ${po.no}` : 'New purchase bill (goods receipt)'} onClose={onClose} footer={<><span className="grow small muted">Taxable {inr(taxable)} · GST {inr(tax)} · <b>Total {inr(taxable + tax)}</b></span><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" onClick={save}>Save and add to stock</Btn></>}>
-      <div className="stack">
-        <div className="row gap-s wrap">
-          {photoOK && <label className="btn">Read from photo<input type="file" accept="image/*" capture="environment" hidden onChange={fromPhoto} /></label>}
-          <label className="btn">Import from file (Excel/CSV)<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={fromFile} /></label>
-          {busy && <span className="muted">{busy}</span>}
-        </div>
-        <div className="grid g3">
-          <Select label="Supplier" value={supplierId} onChange={e => setSupplierId(e.target.value)} options={[{ value: '', label: 'Choose supplier' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} id="pb-sup" />
-          <Input label="Supplier’s bill number" value={billNo} onChange={e => setBillNo(e.target.value)} id="pb-no" />
-          <Input label="Bill date" type="date" value={date} onChange={e => setDate(e.target.value)} id="pb-date" />
-        </div>
-        <div className="table-wrap"><table className="tbl">
-          <thead><tr><th>Product</th><th>Qty</th><th>Rate (before GST)</th><th>GST</th><th>Batch</th><th>Expiry</th><th className="num">Amount</th><th /></tr></thead>
-          <tbody>{lines.map(l => (
-            <tr key={l.key} style={!l.productId && l.qty ? { background: 'var(--bad-soft)' } : undefined}>
-              <td style={{ minWidth: 200 }}><select className="input" value={l.productId} onChange={e => pick(l.key, e.target.value)} aria-label="Product"><option value="">{l.name ? `Match: ${l.name}` : 'Choose product'}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-              <td><input className="input" style={{ width: 80 }} type="number" value={l.qty} onChange={e => setL(l.key, { qty: e.target.value })} aria-label="Quantity" /></td>
-              <td><input className="input" style={{ width: 100 }} type="number" value={l.rate} onChange={e => setL(l.key, { rate: e.target.value })} aria-label="Rate" /></td>
-              <td><select className="input" style={{ width: 80 }} value={l.gst} onChange={e => setL(l.key, { gst: Number(e.target.value) })} aria-label="GST">{GST_SLABS.map(g => <option key={g} value={g}>{g}%</option>)}</select></td>
-              <td><input className="input" style={{ width: 100 }} value={l.batchNo} onChange={e => setL(l.key, { batchNo: e.target.value })} aria-label="Batch" /></td>
-              <td><input className="input" type="date" value={l.expiry} onChange={e => setL(l.key, { expiry: e.target.value })} aria-label="Expiry" /></td>
-              <td className="num">{inr((Number(l.qty) * Number(l.rate) || 0) * (1 + Number(l.gst) / 100))}</td>
-              <td><button className="icon-btn" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} aria-label="Remove line">✕</button></td>
-            </tr>
-          ))}</tbody>
-        </table></div>
-        <div><Btn size="sm" onClick={() => setLines(ls => [...ls, emptyLine()])}>Add line</Btn></div>
-        {missingExp.length > 0 && <p className="note note-warn small">{missingExp.length} line(s) have no expiry date. Enter it from the pack so expiry control works.</p>}
-      </div>
-    </Modal>
   );
 }
 

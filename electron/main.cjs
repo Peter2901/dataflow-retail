@@ -31,6 +31,18 @@ ipcMain.handle('saveBackup', (e, name, json) => {
   return dir;
 });
 
+// Free offline bill reading (Smart Scan step 2). The English data ships inside the app (dist/ocr).
+let ocrWorker = null;
+ipcMain.handle('ocr', async (e, dataUrl) => {
+  if (!ocrWorker) {
+    const { createWorker } = require('tesseract.js');
+    ocrWorker = await createWorker('eng', 1, { langPath: path.join(__dirname, '..', 'dist', 'ocr').replace('app.asar', 'app.asar.unpacked'), gzip: true, cachePath: path.join(app.getPath('userData'), 'ocr-cache') });
+    await ocrWorker.setParameters({ tessedit_pageseg_mode: '3', preserve_interword_spaces: '1' });
+  }
+  const buf = Buffer.from(String(dataUrl).replace(/^data:[^;]+;base64,/, ''), 'base64');
+  return (await ocrWorker.recognize(buf)).data.text;
+});
+
 app.on('second-instance', () => { if (win) { win.restore(); win.focus(); } });
 app.whenReady().then(create);
 app.on('window-all-closed', () => app.quit());

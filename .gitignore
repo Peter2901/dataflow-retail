@@ -8,3 +8,4 @@ design-*.html
 dist-owner
 android
 package-lock.json
+public/ocr

@@ -10,6 +10,7 @@ import { saveSale, audit, tierFor } from '../lib/sales.js';
 import { customerDue } from '../lib/parties.js';
 import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum } from '../lib/util.js';
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
+import QuickAdd from '../ui/QuickAdd.jsx';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
 
@@ -120,17 +121,25 @@ export default function POS() {
     const q = query.trim();
     if (!q) return;
     if (suggestions.length && !/^\d{8,}$/.test(q)) return addProduct(suggestions[hi] || suggestions[0]);
-    const scale = parseScaleBarcode(q);
-    if (scale) {
-      const p = products.find(x => x.plu === scale.plu);
-      if (p) return addProduct(p, r2(scale.grams / 1000));
-    }
+    // An exact barcode wins over a weighing-scale reading, so store and maker barcodes never
+    // get mistaken for scale stickers.
     const p = products.find(x => x.barcode === q || x.id.toLowerCase() === q.toLowerCase() || (x.plu && x.plu === q));
     if (p) {
       if (p.loose) return setModal({ type: 'weight', product: p });
       return addProduct(p);
     }
-    beep(); toast(`No product with code ${q}. Add it in Products.`, 'bad'); setQuery('');
+    const scale = parseScaleBarcode(q);
+    if (scale) {
+      const sp = products.find(x => x.plu === scale.plu);
+      if (sp) return addProduct(sp, r2(scale.grams / 1000));
+    }
+    beep(); setQuery('');
+    if (/^[A-Z0-9-]{6,20}$/i.test(q)) {
+      // Unknown barcode: add the product right here (cashiers need a manager's PIN).
+      const ok = ['owner', 'manager'].includes(user.role) || await approve(`Barcode ${q} is not in the product list. Approve adding it as a new product.`);
+      if (ok) return setModal({ type: 'quickadd', barcode: q });
+    }
+    toast(`No product with code ${q}.`, 'bad');
   };
 
   const setQty = (key, qty) => setCart(c => c.map(x => x.key === key ? { ...x, qty: Math.max(0, qty) } : x).filter(x => x.qty > 0));
@@ -301,6 +310,7 @@ export default function POS() {
         </div>
       </div>
 
+      {modal?.type === 'quickadd' && <QuickAdd barcode={modal.barcode} title="New product (barcode not found)" allowNext={false} onClose={() => { setModal(null); scanRef.current?.focus(); }} onSaved={p => { setModal(null); addProduct(p); }} />}
       {modal?.type === 'weight' && <WeightModal product={modal.product} onClose={() => setModal(null)} onAdd={kg => { setModal(null); addProduct(modal.product, kg); }} />}
       {modal?.type === 'price' && <PriceModal line={modal.line} onClose={() => modal.res(null)} onSave={v => modal.res(v)} />}
       {modal?.type === 'customer' && <CustomerModal onClose={() => setModal(null)} onPick={c => { setCust(c); setModal(null); scanRef.current?.focus(); }} />}

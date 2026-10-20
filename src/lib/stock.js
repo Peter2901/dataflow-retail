@@ -83,9 +83,9 @@ export async function moveStock({ batchId, productId, storeId, qty, type, ref, n
   await db.stockMoves.add({ ts: Date.now(), productId, batchId, storeId, qty, type, ref, note: note || '' });
 }
 
-export async function addBatch({ productId, storeId, batchNo, mfg, expiry, qty, cost, ref }) {
+export async function addBatch({ productId, storeId, batchNo, mfg, expiry, qty, cost, ref, mrp }) {
   const id = uid('b_');
-  await db.batches.add({ id, productId, storeId, batchNo: batchNo || 'B' + Date.now().toString().slice(-6), mfg: mfg || null, expiry: expiry || null, qty: 0, cost: Number(cost) || 0, status: 'active', receivedAt: Date.now() });
+  await db.batches.add({ id, productId, storeId, batchNo: batchNo || 'B' + Date.now().toString().slice(-6), mfg: mfg || null, expiry: expiry || null, qty: 0, cost: Number(cost) || 0, mrp: Number(mrp) || null, status: 'active', receivedAt: Date.now() });
   await moveStock({ batchId: id, productId, storeId, qty: Number(qty), type: 'purchase', ref });
   return id;
 }

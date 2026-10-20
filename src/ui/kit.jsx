@@ -25,9 +25,9 @@ export function Field({ label, hint, children, className = '' }) {
   return <label className={`field ${className}`}><span className="field-label">{label}</span>{children}{hint && <span className="field-hint">{hint}</span>}</label>;
 }
 
-export function Input({ label, hint, className, ...p }) {
-  return <Field label={label} hint={hint} className={className}><input className="input" {...p} /></Field>;
-}
+export const Input = React.forwardRef(function Input({ label, hint, className, ...p }, ref) {
+  return <Field label={label} hint={hint} className={className}><input className="input" ref={ref} {...p} /></Field>;
+});
 
 export function Select({ label, hint, options, className, ...p }) {
   return (
@@ -54,15 +54,24 @@ export function Card({ title, actions, children, className = '' }) {
   );
 }
 
-export function Modal({ title, onClose, children, footer, wide }) {
+// Open modals, newest last: Escape closes only the top one (a quick-add box over a purchase bill
+// must not close the bill too).
+const modalStack = [];
+export function Modal({ title, onClose, children, footer, wide, xl }) {
+  const me = useRef({});
   useEffect(() => {
-    const k = e => e.key === 'Escape' && onClose?.();
+    const id = me.current;
+    modalStack.push(id);
+    return () => { const i = modalStack.indexOf(id); if (i >= 0) modalStack.splice(i, 1); };
+  }, []);
+  useEffect(() => {
+    const k = e => e.key === 'Escape' && modalStack[modalStack.length - 1] === me.current && onClose?.();
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
   return (
     <div className="modal-back" onMouseDown={e => e.target === e.currentTarget && onClose?.()}>
-      <div className={`modal ${wide ? 'modal-wide' : ''}`} role="dialog" aria-label={title}>
+      <div className={`modal ${xl ? 'modal-xl' : wide ? 'modal-wide' : ''}`} role="dialog" aria-label={title}>
         <header className="modal-head"><h3>{title}</h3><button className="icon-btn" onClick={onClose} aria-label="Close">✕</button></header>
         <div className="modal-body">{children}</div>
         {footer && <footer className="modal-foot">{footer}</footer>}
