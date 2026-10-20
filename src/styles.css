@@ -311,3 +311,10 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
   .tabbar .nav-count { position: absolute; top: 2px; right: 18%; margin: 0; }
   .shell.has-tabs .main { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* GST Saathi check list */
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.checks li:last-child { border-bottom: 0; }
+.checks .badge { flex: none; min-width: 64px; text-align: center; }
+details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }

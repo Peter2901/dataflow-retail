@@ -2,6 +2,7 @@
 // dead stock, expiry clearance, festival planning, staff alerts, customer habits,
 // udhaar recovery, daily summary, morning to-do and the weekly report.
 import { db, getSettings } from '../db.js';
+import { dueDates, daysTo, monthKey, monthLabel, DEFAULT_RULES } from './gst.js';
 import { r2, sum, groupBy, daysBetween, localISO, addDays } from './util.js';
 import { stockMap, daysLeft, DEFAULT_EXPIRY } from './stock.js';
 import { customerAgeing, partyBalances } from './parties.js';
@@ -336,9 +337,14 @@ export async function morningTodo(storeId) {
   for (const f of fest.slice(0, 2)) todo.push({ page: 'smart', param: { tab: 'festivals' }, money: r2(sum(f.items, i => i.order * (i.product.price || 0))), text: `${f.festival.name} in ${f.inDays} day(s): stock up on ${f.items.filter(i => i.order > 0).length} item(s).` });
   const staff = await staffAlerts(storeId);
   if (staff.alerts.length) todo.push({ page: 'smart', param: { tab: 'staff' }, money: 1000, text: `${staff.alerts.length} staff alert(s) to look at.` });
-  const day = new Date().getDate();
-  if (day >= 8 && day <= 11) todo.push({ page: 'reports', money: 900, text: 'GSTR-1 for last month is due on the 11th.' });
-  if (day >= 17 && day <= 20) todo.push({ page: 'reports', money: 900, text: 'GSTR-3B and tax payment for last month are due on the 20th.' });
+  // GST due dates from GST Saathi's rule book; filed returns drop off the list.
+  const lm = new Date(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
+  const key = monthKey(lm);
+  for (const x of dueDates(key, { qrmp: !!s.gstFiling?.qrmp, stateCode: s.stateCode, rules: s.gstRules || DEFAULT_RULES })) {
+    const n = daysTo(x.date);
+    if (s.gstFiled?.[key]?.[x.id] || n > 5 || x.id === 'iff' || x.id === 'gstr9') continue;
+    todo.push({ page: 'gst', money: n < 0 ? 5000 : 900, text: n < 0 ? `${x.label} for ${monthLabel(key)} is ${-n} day(s) late — file now to stop the late fee.` : `${x.label} for ${monthLabel(key)} is due ${n === 0 ? 'today' : `in ${n} day(s)`}.` });
+  }
   void pm;
   return todo.sort((a, b) => b.money - a.money);
 }

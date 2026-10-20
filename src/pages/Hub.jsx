@@ -18,6 +18,7 @@ export const HUB_TOOLS = [
   { id: 'weekly', kind: 'free', title: 'Weekly report', text: 'One short summary to share on WhatsApp.', page: 'smart', param: { tab: 'weekly' } },
   { id: 'pchecks', kind: 'free', title: 'Purchase checks', text: 'Rate hikes, duplicate bills, missing schemes, cheaper supplier.', page: 'purchases', param: { tab: 'bills' } },
   { id: 'dups', kind: 'free', title: 'Duplicate products', text: 'Find the same item saved twice and merge it.', page: 'products', param: { dups: true } },
+  { id: 'gst', kind: 'free', title: 'GST Saathi', text: 'Due dates, checks before filing, GSTR-1 file, 2B match, 3B summary.', page: 'gst' },
   { id: 'orders', kind: 'free', title: 'WhatsApp orders', text: 'Customer orders to pack, and supplier orders in their language.', page: 'orders' },
   { id: 'scan', kind: 'ai', title: 'Smart Scan bill photo', text: 'Photo of a supplier bill → purchase entry. QR and offline reading first.', page: 'purchases', param: { newBill: true } },
   { id: 'voice', kind: 'ai', title: 'Speak purchase lines', text: '"Amul butter 20 piece 52 rupaye" → one bill line.', page: 'purchases', param: { newBill: true } },

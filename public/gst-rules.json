@@ -1,0 +1,23 @@
+{
+  "version": "2026.10.1",
+  "updated": "2026-10-20",
+  "slabs": [
+    0,
+    5,
+    18,
+    40
+  ],
+  "hsnMinDigits": 4,
+  "due": {
+    "gstr1Monthly": 11,
+    "iffQrmp": 13,
+    "gstr1Qrmp": 13,
+    "gstr3bMonthly": 20,
+    "gstr3bQrmpCat1": 22,
+    "gstr3bQrmpCat2": 24,
+    "pmt06": 25,
+    "gstr9": "12-31"
+  },
+  "notes": [],
+  "extensions": {}
+}

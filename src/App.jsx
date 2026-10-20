@@ -20,6 +20,7 @@ import Staff from './pages/Staff.jsx';
 import Assistant from './pages/Assistant.jsx';
 import Smart from './pages/Smart.jsx';
 import Hub from './pages/Hub.jsx';
+import GstSaathi from './pages/GstSaathi.jsx';
 import { Connect, Downloading } from './ui/Connect.jsx';
 
 // The Android phone app is the full store app without the billing counter.
@@ -45,6 +46,7 @@ const ICON = {
   accounts: '<path d="M4 21V10M10 21V4M16 21v-8M22 21H2"/>',
   reports: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
   staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  gst: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/>',
   hub: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/>',
   smart: '<path d="M12 2l2.4 5.6L20 8.3l-4.3 3.9L17 18l-5-3-5 3 1.3-5.8L4 8.3l5.6-.7Z"/>',
   assistant: '<path d="M12 3a7 7 0 0 1 7 7c0 3-2 4-2 6H7c0-2-2-3-2-6a7 7 0 0 1 7-7Z"/><path d="M9 21h6"/>',
@@ -78,6 +80,7 @@ export const NAV = [
   ] },
   { group: 'Money & team', items: [
     { id: 'accounts', label: 'Accounts', roles: ['owner', 'accountant'], el: Accounts },
+    { id: 'gst', label: 'GST Saathi', roles: ['owner', 'accountant'], el: GstSaathi },
     { id: 'reports', label: 'Reports', roles: OFFICE, el: Reports },
     { id: 'staff', label: 'Staff & salary', roles: ['owner', 'manager'], el: Staff },
   ] },
