@@ -251,7 +251,7 @@ export function preChecks({ sales, products, settings, rules = DEFAULT_RULES, d,
   if (future.length) add('stop', `${future.length} bill(s) dated in the future — check the counter PC’s clock.`);
 
   if (threeB) {
-    if (threeB.itcSafe == null) add('warn', 'GSTR-2B not loaded for this month — input credit is from your books only. Load 2B (Step 3) before filing 3B.');
+    if (threeB.itcSafe == null) add('warn', 'GSTR-2B not loaded for this month — input credit is from your books only. Load 2B (step 4) before filing 3B.');
     else if (threeB.itcSafe + 1 < threeB.t4a5.total) add('warn', `Only ₹${threeB.itcSafe} of this month’s ₹${threeB.t4a5.total} input credit is in GSTR-2B. Claim only the 2B amount; the rest can be claimed when suppliers file.`);
     if (threeB.t4b1.total > 0) add('ok', `₹${threeB.t4b1.total} input credit given back for ${threeB.t4b1.count} write-off(s) — goes in 3B Table 4(B)(1).`);
   }

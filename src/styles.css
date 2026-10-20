@@ -3,7 +3,7 @@
   --bg: #EDF0F3; --surface: #FFFFFF; --surface-2: #F6F8FA; --ink: #142234; --muted: #586677; --line: #D6DDE4;
   --accent: #E8962A; --accent-ink: #1A1205; --accent-soft: #FCEBD2; --brand: #0F1B2D; --brand-ink: #EEF2F6; --brand-muted: #8FA0B8;
   --ok: #0E7C5E; --ok-soft: #DCF2EA; --warn: #9A5B00; --warn-soft: #FBEBCF; --bad: #B4232A; --bad-soft: #FADCDD; --info: #23609E; --info-soft: #DDEAF7;
-  --font: 'DM Sans', 'Segoe UI', Roboto, Arial, sans-serif; --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --font: 'DM Sans', 'Segoe UI', Roboto, Arial, 'Nirmala UI', 'Noto Sans Oriya', 'Kalinga', 'Noto Sans Devanagari', 'Mangal', sans-serif; --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --r: 10px; --shadow: 0 1px 2px rgba(15, 27, 45, .06), 0 4px 16px rgba(15, 27, 45, .06);
   /* Sidebar — light & minimal by default; overridden to navy in dark mode */
   --side-bg: var(--surface); --side-ink: var(--ink); --side-muted: var(--muted); --side-line: var(--line);
@@ -318,3 +318,11 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
 .checks li:last-child { border-bottom: 0; }
 .checks .badge { flex: none; min-width: 64px; text-align: center; }
 details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+
+/* Local (Hindi/Odia) item name under the English name on the bill */
+.receipt .loc { font-family: 'Nirmala UI', 'Noto Sans Oriya', 'Kalinga', 'Noto Sans Devanagari', 'Mangal', sans-serif; font-size: 12px; }
+/* Screen language switch */
+.lang-pick { display: inline-flex; border: 1px solid var(--side-line); border-radius: 8px; overflow: hidden; }
+.lang-pick button { background: none; border: 0; color: inherit; font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer; }
+.lang-pick button.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.login .lang-pick { border-color: var(--line); margin-top: 6px; }

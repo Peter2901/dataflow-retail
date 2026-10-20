@@ -131,3 +131,34 @@ has AI on. Model/company switch with the `AI_PROVIDER` / `AI_MODEL` secrets; the
 - Fingerprint/face devices and electronic shelf labels.
 
 GST and payroll rates are configurable; confirm them with your accountant.
+
+## Simpler layout: Smart & AI hub
+
+- **Smart & AI** (amber block in the menu, 5th bottom tab on phones) lists every smart tool as a card marked
+  *Free* (plain code on the device) or *AI if needed* (free code first, AI only when the code is not sure).
+- Setup screens (Import & setup, Security & audit, Settings) are folded under **Setup** in the menu.
+- Code: `src/pages/Hub.jsx`, menu and bottom tabs in `src/App.jsx`.
+
+## GST Saathi
+
+Money & team › **GST Saathi** walks through the month in five steps: due dates (monthly or quarterly/QRMP,
+state-wise 22nd/24th), checks before filing, the GSTR-1 file (JSON in the offline-tool format, plus Excel tables),
+the GSTR-2B match (with IMS guidance) and the GSTR-3B summary including ITC given back on write-offs.
+
+- It prepares and checks; the person or their CA files on the portal. AI is never used here, and it never sets a GST rate.
+- Always look at the portal's preview after uploading the JSON. If the portal changes its format, only `gstr1Json()`
+  in `src/lib/gst.js` needs a change.
+- **Rule book:** `public/gst-rules.json` (served by GitHub Pages). The app checks it once a day; the owner approves any
+  change. To add a due-date extension, edit that file (e.g. `"extensions": { "gstr3b:2026-09": "2026-10-25" }`),
+  raise `version`, and push.
+- Get a CA to check GST Saathi once against a real month before selling it to other stores.
+
+## Languages (English / हिंदी / ଓଡ଼ିଆ)
+
+- Each device picks its own screen language (login screen and bottom of the menu).
+- The wording lives in `scripts/translations.tsv` (English, Hindi, Odia columns). Open it in Excel or Sheets, fix a
+  phrase, save as tab-separated, then run `node scripts/build-i18n.mjs`. `{x}` marks a changing part (a number, a name).
+- Item names, customer names, numbers, table cells and printed bills are never translated.
+- **Bilingual bills:** fill *Name in Hindi / Odia* on a product (or a `LOCAL_NAME` column in the Excel import) and it
+  prints under the English name on the receipt.
+- The Hindi and Odia wording was written by Claude: have a native speaker check it once before wide use.

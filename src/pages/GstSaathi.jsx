@@ -61,7 +61,7 @@ export default function GstSaathi() {
           <Select aria-label="How you file" value={qrmp ? 'q' : 'm'} disabled={user.role !== 'owner'} onChange={e => setSetting('gstFiling', { qrmp: e.target.value === 'q' })} options={[{ value: 'm', label: 'Monthly filer' }, { value: 'q', label: 'Quarterly (QRMP)' }]} />
         </>} />
 
-      {per.kind === 'quarter' && <div className="note">Quarter return: covers {per.keys.map(monthLabel).join(', ')}.</div>}
+      {per.kind === 'quarter' && <div className="note">{`Quarter return: covers ${per.keys.map(monthLabel).join(', ')}.`}</div>}
       {per.kind === 'iff' && <div className="note">Quarterly filer, middle month: GSTR-1 is optional here (IFF, business bills only). Pay this month’s tax with PMT-06.</div>}
 
       <Card title="1 · Due dates">
@@ -72,7 +72,7 @@ export default function GstSaathi() {
               sub={done ? `Filed ${new Date(done.at).toLocaleDateString('en-IN')}${done.arn ? ' · ARN ' + done.arn : ''}` : n < 0 ? `${-n} day(s) late — late fee and interest apply` : n === 0 ? 'Due today' : `${n} day(s) left`} />;
           })}
         </div>
-        <p className="small muted" style={{ marginTop: 8 }}>Usual dates from rule book {rules.version}. The government sometimes extends them — the rule book shows approved extensions.</p>
+        <p className="small muted" style={{ marginTop: 8 }}>{`Usual dates from rule book ${rules.version}. The government sometimes extends them — the rule book shows approved extensions.`}</p>
       </Card>
 
       <Card title={`2 · Checks before filing ${stops ? `— ${stops} to fix` : ''}`}>
@@ -98,7 +98,7 @@ function FiledBox({ done, onFiled, label }) {
   return (
     <div className="row gap-s wrap" style={{ alignItems: 'flex-end' }}>
       <Input label="ARN from the portal (optional)" value={arn} onChange={e => setArn(e.target.value.toUpperCase())} id={`arn-${label}`} />
-      <Btn onClick={() => onFiled(arn.trim())}>I have filed {label}</Btn>
+      <Btn onClick={() => onFiled(arn.trim())}>{`I have filed ${label}`}</Btn>
     </div>
   );
 }
@@ -126,7 +126,7 @@ function Gstr1Step({ d, settings, keyM, per, stops, filed, onFiled }) {
         <Stat label="Credit notes to businesses" value={data.cdnr.length} />
         <Stat label="HSN rows" value={data.hsnB2B.length + data.hsnB2C.length} />
       </div>
-      {stops > 0 && <div className="note note-bad" style={{ marginTop: 10 }}>Fix the {stops} problem(s) in step 2 first. A wrong GSTR-1 also makes GSTR-3B wrong, because the portal copies it.</div>}
+      {stops > 0 && <div className="note note-bad" style={{ marginTop: 10 }}>{`Fix the ${stops} problem(s) in step 2 first. A wrong GSTR-1 also makes GSTR-3B wrong, because the portal copies it.`}</div>}
       <div className="row gap-s wrap" style={{ marginTop: 10 }}>
         <Btn kind="primary" onClick={json} disabled={stops > 0}>Download GSTR-1 file (JSON)</Btn>
         <Btn onClick={excel}>Download tables (Excel)</Btn>

@@ -6,7 +6,7 @@ import { addBatch } from './stock.js';
 import { audit } from './sales.js';
 import { newStoreBarcode } from './barcode.js';
 
-export const BLANK_PRODUCT = { id: '', barcode: '', name: '', category: '', brand: '', uom: 'PCS', hsn: '', gst: 5, mrp: '', price: '', cost: '', casePack: 1, rack: '', reorderMin: 5, reorderMax: 30, vendorId: '', loose: false, plu: '', active: true, batchTracked: true };
+export const BLANK_PRODUCT = { id: '', barcode: '', name: '', localName: '', category: '', brand: '', uom: 'PCS', hsn: '', gst: 5, mrp: '', price: '', cost: '', casePack: 1, rack: '', reorderMin: 5, reorderMax: 30, vendorId: '', loose: false, plu: '', active: true, batchTracked: true };
 
 export function productErrors(p, products) {
   const errs = [];

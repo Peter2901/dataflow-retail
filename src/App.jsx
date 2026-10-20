@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Suspense } from 'react';
-import { db, ensureSeeded, getSettings } from './db.js';
+import { db, ensureSeeded, getSettings, setSetting } from './db.js';
 import { AppCtx, ToastHost, ApproveHost, ConfirmHost, useLive } from './ui/kit.jsx';
 import { hashPin, daysBetween, localISO } from './lib/util.js';
 import { audit } from './lib/sales.js';
@@ -22,6 +22,7 @@ import Smart from './pages/Smart.jsx';
 import Hub from './pages/Hub.jsx';
 import GstSaathi from './pages/GstSaathi.jsx';
 import { Connect, Downloading } from './ui/Connect.jsx';
+import { setUiLanguage, UI_LANGS } from './lib/i18n.js';
 
 // The Android phone app is the full store app without the billing counter.
 export const PHONE_BUILD = import.meta.env.MODE === 'mobile';
@@ -101,6 +102,15 @@ const TAB_LABEL = { dashboard: 'Home', pos: 'Billing', orders: 'Orders', product
 const ROLE_LABEL = { owner: 'Owner', manager: 'Manager', cashier: 'Cashier', accountant: 'Accountant' };
 void ALL;
 
+// Screen language for this device (English / हिंदी / ଓଡ଼ିଆ).
+function LangPick({ value }) {
+  return (
+    <div className="lang-pick" role="group" aria-label="Screen language" data-no-t>
+      {UI_LANGS.map(l => <button key={l.value} className={(value || 'en') === l.value ? 'on' : ''} onClick={() => setSetting('lang', l.value)} title={l.label} aria-pressed={(value || 'en') === l.value}>{l.short}</button>)}
+    </div>
+  );
+}
+
 function Login({ onLogin, settings }) {
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
@@ -125,6 +135,7 @@ function Login({ onLogin, settings }) {
     <div className="login">
       <div className="login-box">
         <div className="row gap-s"><div className="brand-mark">DF</div><div><div className="brand-name">DataFlow Retail</div><div className="muted small">{settings.storeName}</div></div></div>
+        <LangPick value={settings.lang} />
         <h1>Enter your PIN</h1>
         <div className="pin-dots" aria-label={`${pin.length} digits entered`}>{[0, 1, 2, 3].map(i => <span key={i} className={i < pin.length ? 'on' : ''} />)}</div>
         {err && <p className="err" role="alert">{err}</p>}
@@ -166,6 +177,8 @@ export default function App() {
   }, []);
 
   useEffect(() => { setSyncUser(user?.name || ''); }, [user]);
+
+  useEffect(() => { if (settings) setUiLanguage(settings.lang || 'en').catch(() => {}); }, [settings?.lang, !!settings]);
 
   useEffect(() => {
     const t = settings?.theme;
@@ -243,6 +256,7 @@ export default function App() {
                   : sync.lastSync ? `Synced ${new Date(sync.lastSync).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
                   : 'Sync on'}
               </span>
+              <LangPick value={settings.lang} />
               <div className="row between"><span>{user.name} · {ROLE_LABEL[user.role]}</span><button className="btn btn-sm btn-dark" onClick={ctx.logout}>Lock</button></div>
             </div>
           </aside>

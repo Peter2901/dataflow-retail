@@ -8,6 +8,7 @@ const MAP = {
   id: ['SKU_CODE', 'SKU', 'ITEM CODE', 'CODE'],
   barcode: ['BARCODE_EAN', 'BARCODE', 'EAN'],
   name: ['ITEM_NAME', 'ITEM NAME', 'PRODUCT', 'NAME', 'DESCRIPTION'],
+  localName: ['LOCAL_NAME', 'LOCAL NAME', 'HINDI_NAME', 'HINDI NAME', 'ODIA_NAME', 'ODIA NAME'],
   category: ['CATEGORY'], subCategory: ['SUB_CATEGORY', 'SUBCATEGORY'], brand: ['BRAND', 'COMPANY', 'MANUFACTURER'],
   uom: ['UOM', 'UNIT'], packSize: ['PACK_SIZE', 'SIZE'], casePack: ['CASE_PACK_QTY', 'CASE PACK', 'CASE_QTY'],
   hsn: ['HSN_CODE', 'HSN'], gst: ['GST_RATE_PCT', 'GST', 'GST%', 'GST RATE', 'TAX%'],
@@ -48,7 +49,7 @@ export function mapProducts(raw) {
     const g = k => (columns[k] ? r[columns[k]] : '');
     const uom = norm(g('uom')) || 'PCS';
     return {
-      row: i + 2, id: String(g('id') || '').trim(), barcode: String(g('barcode') || '').replace(/\.0$/, '').trim(), name: String(g('name') || '').trim(),
+      row: i + 2, id: String(g('id') || '').trim(), barcode: String(g('barcode') || '').replace(/\.0$/, '').trim(), name: String(g('name') || '').trim(), localName: String(g('localName') || '').trim(),
       category: String(g('category') || 'General').trim(), subCategory: String(g('subCategory') || '').trim(), brand: String(g('brand') || '').trim(),
       uom, packSize: g('packSize'), casePack: Number(g('casePack')) || 1, hsn: String(g('hsn') || '').replace(/\.0$/, '').trim(),
       gst: g('gst') === '' ? null : Number(String(g('gst')).replace('%', '')), cost: Number(g('cost')) || 0, mrp: Number(g('mrp')) || 0, price: Number(g('price')) || 0,
@@ -107,7 +108,7 @@ export function exportRows(filename, sheetName, rows) {
 
 export function exportProducts(products, stock = {}) {
   exportRows(`products-${todayISO()}.xlsx`, 'Products', products.map(p => ({
-    SKU_CODE: p.id, BARCODE_EAN: p.barcode, ITEM_NAME: p.name, CATEGORY: p.category, BRAND: p.brand, UOM: p.uom, CASE_PACK_QTY: p.casePack,
+    SKU_CODE: p.id, BARCODE_EAN: p.barcode, ITEM_NAME: p.name, LOCAL_NAME: p.localName || '', CATEGORY: p.category, BRAND: p.brand, UOM: p.uom, CASE_PACK_QTY: p.casePack,
     HSN_CODE: p.hsn, GST_RATE_PCT: p.gst, PURCHASE_RATE: p.cost, MRP: p.mrp, SELLING_PRICE: p.price, STOCK: stock[p.id] || 0,
     MIN_REORDER: p.reorderMin, MAX_STOCK: p.reorderMax, RACK_LOCATION: p.rack, VENDOR_ID: p.vendorId, PLU: p.plu,
   })));

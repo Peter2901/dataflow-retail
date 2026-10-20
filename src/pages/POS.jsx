@@ -78,7 +78,7 @@ export default function POS() {
       const unitPrice = c.price ?? p.price;
       const a = allocs[c.key] || { alloc: [], blocked: [] };
       const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null };
+      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null };
     }).filter(Boolean);
     const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
     const billLines = lines.map(l => ({

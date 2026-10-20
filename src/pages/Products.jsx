@@ -92,6 +92,7 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
       <div className="grid g3">
         <Input label="Product name (brand, variant, size)" value={p.name} onChange={f('name')} className="span2" id="p-name" />
         <Input label="Brand" value={p.brand} onChange={f('brand')} id="p-brand" />
+        <Input label="Name in Hindi / Odia (prints on the bill)" value={p.localName || ''} onChange={f('localName')} className="span2" id="p-local" placeholder="e.g. ଅମୁଲ ବଟର" />
         <Field label="Barcode (EAN-13)"><div className="row gap-s"><input className="input" value={p.barcode} onChange={f('barcode')} id="p-bar" /><Btn size="sm" type="button" onClick={newEAN} title="Make a store barcode for items without one">New</Btn></div>
           {p.barcode && /^\d{8}$|^\d{12,14}$/.test(p.barcode) && <span className="field-hint" style={{ color: validEAN(p.barcode) ? 'var(--ok)' : 'var(--bad)' }}>{validEAN(p.barcode) ? (isStoreBarcode(p.barcode) ? 'Store barcode — print stickers for it' : 'Check digit OK') : 'Check digit wrong'}</span>}</Field>
         <Input label="Category" value={p.category} onChange={f('category')} id="p-cat" />
