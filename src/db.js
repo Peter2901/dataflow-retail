@@ -48,16 +48,19 @@ db.version(2).stores({
 // local-only things (settings, users, shifts, held, bank lines) stay on the device.
 export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 'suppliers', 'purchases', 'sales', 'orders', 'offers', 'journal'];
 
-// Auto-stamp every create/update so the sync knows what is new. Rows that arrived
-// from another counter carry `_oc` (origin counter) and are never pushed back.
+// Auto-stamp every create/update so the sync knows what is new.
+// Rows written by the sync carry `_oc` (the counter they came from) and `_seq`
+// (the server version) and are not sent back. As soon as THIS counter changes such
+// a row (e.g. a customer's points after a sale here), `_oc` is cleared, so the
+// change is sent to the other counters too.
 for (const t of SYNC_TABLES) {
   db[t].hook('creating', (primKey, obj) => {
     if (!obj.updatedAt) obj.updatedAt = Date.now();
     if (t === 'stockMoves' && !obj.sid) obj.sid = COUNTER + ':' + uid();
   });
-  db[t].hook('updating', (mods, primKey, obj) => {
-    // If this change isn't just the sync writing an incoming row, bump the stamp.
-    if (!('_oc' in mods)) return { updatedAt: Date.now() };
+  db[t].hook('updating', (mods) => {
+    if ('_seq' in mods || '_mv' in mods) return;          // the sync itself is writing
+    return { updatedAt: Date.now(), _oc: undefined };      // a change made on this counter
   });
 }
 

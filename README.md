@@ -51,9 +51,25 @@ and never clear Chrome's site data on the counter PC.
 | Screens | `src/pages/*.jsx` |
 | Sample data | `src/seed.js` |
 
+## Cloud sync (several counters)
+
+Free, using a Supabase project. Each counter keeps its own full copy (billing never waits for the internet)
+and every 8 seconds sends its new rows to one shared `records` table and pulls the other counters' rows.
+
+- Setup: Settings › Cloud sync shows the one-time SQL. Paste it in Supabase › SQL Editor and run it.
+- Every counter: same Project URL and publishable/anon key, **different counter code** (Settings › Store & GST: T1, T2…).
+- Counter 1 presses *Send this counter's data to cloud* once. Counters 2–4 first use Settings › Look & data › *Start fresh*,
+  then turn sync on — they download everything.
+- Stock is synced as stock-move events, so two counters selling the same item at once never overwrite each other.
+- Counters pull by the server's row number, not by their own clocks, so a counter that was offline for hours still
+  delivers every bill when it reconnects.
+- Edits sync from any counter (e.g. a customer created on T1 earns points on T2 → T1 sees the new points).
+- Known limit (test version): if two counters change the same customer or product within the same few seconds,
+  the last change wins.
+- Code: `src/lib/sync.js`.
+
 ## Not built yet (next phase)
 
-- Live cloud sync between counters and stores (each counter is independent today; use backups to move data).
 - Sending WhatsApp messages automatically (today each message opens WhatsApp ready to send; the WhatsApp Business API would send in bulk).
 - Automatic UPI/card confirmation from a payment gateway (cashier confirms today).
 - E-invoice (IRN) and e-way bill generation through a GST Suvidha Provider.

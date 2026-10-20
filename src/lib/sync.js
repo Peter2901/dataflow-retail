@@ -86,23 +86,24 @@ async function applyRow(c, row) {
     if (await db.appliedMoves.get(sid)) return;
     if (d.batchId) {
       const b = await db.batches.get(d.batchId);
-      if (b) await db.batches.update(d.batchId, { qty: r3(b.qty + d.qty), _oc: row.counter });
+      if (b) await db.batches.update(d.batchId, { qty: r3(b.qty + d.qty), _mv: row.seq });
     }
-    await db.stockMoves.add({ ...d, _oc: row.counter });
+    await db.stockMoves.add({ ...d, _oc: row.counter, _seq: row.seq });
     await db.appliedMoves.put({ sid });
     return;
   }
+  const table = db[row.table_name];
+  if (!table) return;
+  const existing = await table.get(d.id);
+  if (existing && existing._seq === row.seq) return;    // this exact version is already here
   if (row.table_name === 'batches') {
     // Quantity always comes from stock moves, never from another counter's copy.
-    const existing = await db.batches.get(d.id);
-    let qty;
-    if (existing) qty = existing.qty;
-    else qty = r3((await db.stockMoves.where('batchId').equals(d.id).toArray()).reduce((a, m) => a + (Number(m.qty) || 0), 0));
-    await db.batches.put({ ...d, qty, _oc: row.counter });
+    const qty = existing ? existing.qty
+      : r3((await db.stockMoves.where('batchId').equals(d.id).toArray()).reduce((a, m) => a + (Number(m.qty) || 0), 0));
+    await db.batches.put({ ...d, qty, _oc: row.counter, _seq: row.seq });
     return;
   }
-  if (!db[row.table_name]) return;
-  await db[row.table_name].put({ ...d, _oc: row.counter });
+  await table.put({ ...d, _oc: row.counter, _seq: row.seq });
 }
 
 // Pull by the server's row number (seq), not by anyone's clock, so a counter that
