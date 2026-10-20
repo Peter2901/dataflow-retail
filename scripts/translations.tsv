@@ -1132,3 +1132,10 @@ Unit 2 — middle (e.g. Kg)	इकाई 2 — बीच की (जैसे �
 Unit 3 — smallest (e.g. Gram)	इकाई 3 — सबसे छोटी (जैसे ग्राम)	ୟୁନିଟ୍ 3 — ସବୁଠୁ ଛୋଟ (ଯେପରି ଗ୍ରାମ)
 Stock, price and cost are kept per	स्टॉक, भाव और लागत इसके हिसाब से रखे जाते हैं	ଷ୍ଟକ୍, ଦର ଓ ଲାଗତ ଏହି ହିସାବରେ ରହେ
 Unit (set by Units below)	इकाई (नीचे की इकाइयों से तय)	ୟୁନିଟ୍ (ତଳ ୟୁନିଟ୍ ଅନୁସାରେ)
+Retail and wholesale prices	खुदरा और थोक भाव	ଖୁଚୁରା ଓ ପାଇକାରୀ ଦର
+All prices include GST. Leave a box empty to use the automatic price.	सभी भाव GST सहित हैं। अपने-आप वाला भाव लेने के लिए खाना खाली छोड़ें।	ସବୁ ଦର GST ସହିତ। ସ୍ୱୟଂଚାଳିତ ଦର ପାଇଁ ଘର ଖାଲି ଛାଡ଼ନ୍ତୁ।
+Retail price (₹) — the Selling price above	खुदरा भाव (₹) — ऊपर वाला बिक्री भाव	ଖୁଚୁରା ଦର (₹) — ଉପରର ବିକ୍ରି ଦର
+Wholesale price (₹)	थोक भाव (₹)	ପାଇକାରୀ ଦର (₹)
+Retail	खुदरा	ଖୁଚୁରା
+Wholesale	थोक	ପାଇକାରୀ
+Wholesale rate	थोक भाव	ପାଇକାରୀ ଦର

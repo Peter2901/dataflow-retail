@@ -43,7 +43,7 @@ function ImportProducts() {
     let value = 0;
     for (const r of good) {
       const id = r.id || 'SKU' + uid('').slice(-7).toUpperCase();
-      await db.products.put({ id, barcode: r.barcode, name: r.name, ...(r.localName ? { localName: r.localName } : {}), category: r.category, subCategory: r.subCategory, brand: r.brand, uom: r.uom, packSize: r.packSize, hsn: r.hsn, gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack, ...(r.units ? { units: r.units } : {}), rack: r.rack, reorderMin: r.reorderMin, reorderMax: r.reorderMax, vendorId: r.vendorId, plu: r.plu, loose: r.loose, batchTracked: true, active: true });
+      await db.products.put({ id, barcode: r.barcode, name: r.name, ...(r.localName ? { localName: r.localName } : {}), category: r.category, subCategory: r.subCategory, brand: r.brand, uom: r.uom, packSize: r.packSize, hsn: r.hsn, gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack, ...(r.units ? { units: r.units } : {}), ...(r.prices ? { prices: r.prices } : {}), ...(r.wholesale ? { wholesale: r.wholesale } : {}), rack: r.rack, reorderMin: r.reorderMin, reorderMax: r.reorderMax, vendorId: r.vendorId, plu: r.plu, loose: r.loose, batchTracked: true, active: true });
       if (r.openingStock > 0) {
         const bid = await addBatch({ productId: id, storeId, batchNo: r.batchNo || 'OPENING', expiry: r.expiry, qty: r.openingStock, cost: r.cost, ref: 'IMPORT' });
         if (r.expiry && r.expiry < todayISO()) await db.batches.update(bid, { status: 'quarantine' });

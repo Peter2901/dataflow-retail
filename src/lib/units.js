@@ -112,3 +112,72 @@ export function cleanUnits(p) {
   const units = { names: [names[0], names[1], k === 3 ? names[2] : ''], c12: num(u.c12), c23: k === 3 ? num(u.c23) : 0, base };
   return { ...p, units, uom: uomCode(names[base]) };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Retail and wholesale price lists.
+//   p.price            retail price per base unit (the "Selling price" field)
+//   p.prices.r[0..1]   retail price per Unit 1 and per Unit 2 (blank = price × units in it)
+//   p.prices.w[0..2]   wholesale price per Unit 1, 2 and 3 (blank = the retail price for that unit)
+//   p.wholesale        wholesale price when the product has only one unit
+// All prices include GST, like the selling price. Prices are per ONE of that unit (₹ per Bag, ₹ per Kg…).
+// ---------------------------------------------------------------------------------------------
+const pos = v => (Number(v) > 0 ? Number(v) : 0);
+const round6 = v => Math.round(v * 1e6) / 1e6;
+
+/** Retail price of one unit `i` (₹, incl. GST). Without units: the selling price. */
+export function retailUnitPrice(p, i) {
+  const L = unitList(p);
+  if (!L.length) return pos(p.price);
+  const u = L[i] || L.find(x => x.base);
+  if (u.base) return pos(p.price);
+  const own = u.i < 2 ? pos(p.prices?.r?.[u.i]) : 0;
+  return own || pos(p.price) * u.factor;
+}
+
+/** Wholesale price of one unit `i`; falls back to the retail price when none is set. */
+export function wholesaleUnitPrice(p, i) {
+  const L = unitList(p);
+  if (!L.length) return pos(p.wholesale) || pos(p.price);
+  const u = L[i] || L.find(x => x.base);
+  return pos(p.prices?.w?.[u.i]) || retailUnitPrice(p, u.i);
+}
+
+/** The price per BASE unit to charge when quantity is counted in unit `i` ('retail' or 'wholesale'). */
+export function priceFor(p, i, mode = 'retail') {
+  const L = unitList(p);
+  if (!L.length) return mode === 'wholesale' ? wholesaleUnitPrice(p) : pos(p.price);
+  const u = L[i] || L.find(x => x.base);
+  const per = mode === 'wholesale' ? wholesaleUnitPrice(p, u.i) : retailUnitPrice(p, u.i);
+  return round6(per / u.factor);
+}
+
+/** Price checks: never above MRP, wholesale never below the purchase rate. */
+export function priceErrors(p) {
+  const errs = [];
+  const mrp = pos(p.mrp), cost = pos(p.cost);
+  const L = unitList(p);
+  const rows = L.length ? L : [{ i: 0, name: 'unit', factor: 1 }];
+  for (const u of rows) {
+    const r = retailUnitPrice(p, u.i), w = wholesaleUnitPrice(p, u.i);
+    const nm = L.length ? ` per ${u.name}` : '';
+    if (mrp && r > mrp * u.factor + 0.005) errs.push(`Retail price${nm} ₹${plain(r, 2)} is above MRP ₹${plain(mrp * u.factor, 2)}.`);
+    if (mrp && w > mrp * u.factor + 0.005) errs.push(`Wholesale price${nm} ₹${plain(w, 2)} is above MRP ₹${plain(mrp * u.factor, 2)}.`);
+    if (cost && w < cost * u.factor - 0.005) errs.push(`Wholesale price${nm} ₹${plain(w, 2)} is below the purchase rate ₹${plain(cost * u.factor, 2)}.`);
+  }
+  return [...new Set(errs)];
+}
+
+/** Tidy the price lists before saving (numbers only, drop what is empty). */
+export function cleanPrices(p) {
+  const k = unitList(p).length;
+  const { prices, wholesale, ...rest } = p; // eslint-disable-line no-unused-vars
+  const out = { ...rest };
+  if (!k) {
+    if (pos(wholesale)) out.wholesale = pos(wholesale);
+    return out;
+  }
+  const r = [pos(prices?.r?.[0]), pos(prices?.r?.[1])];
+  const w = [pos(prices?.w?.[0]), pos(prices?.w?.[1]), pos(prices?.w?.[2])];
+  if (r.some(Boolean) || w.some(Boolean)) out.prices = { r, w };
+  return out;
+}

@@ -45,7 +45,7 @@ export const chainInput = s => [s.prevHash, s.chainSeq, s.no, s.ts, s.totals.pay
 /**
  * bill: result of computeBill; payments: [{mode, amount, ref}]
  */
-export async function saveSale({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null }) {
+export async function saveSale({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail' }) {
   const settings = await getSettings();
   const no = await nextInvoiceNo(settings, ts);
   const prevHash = await lastSaleHash(storeId, chainKey({ no }));
@@ -57,6 +57,7 @@ export async function saveSale({ bill, payments, customer, user, shiftId, storeI
     cashierId: user?.id, cashierName: user?.name, customerId: customer?.id || null, customerName: customer?.name || '',
     customerPhone: customer?.phone || '', b2b, lines: bill.lines, totals: bill.totals, billDiscounts: bill.billDiscounts || [],
     payments, pointsUsed, pointsEarned: 0, prevHash,
+    ...(priceMode === 'wholesale' ? { priceMode } : {}),
   };
   // Loyalty: points on what was paid (not on points used), with tier multiplier.
   if (customer && type === 'sale') {

@@ -12,7 +12,7 @@ import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum 
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
-import { unitList, toBase, fromBase, plain } from '../lib/units.js';
+import { unitList, toBase, fromBase, plain, priceFor } from '../lib/units.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
 // Payment tiles on the counter: the icon says what it is, the key badge says how to press it.
@@ -48,6 +48,7 @@ export default function POS() {
   const [query, setQuery] = useState('');
   const [hi, setHi] = useState(0);
   const [customer, setCustomer] = useState(null);
+  const [priceMode, setPriceMode] = useState('retail');   // 'retail' | 'wholesale'
   const [due, setDue] = useState(0);
   const [b2b, setB2b] = useState('');
   const [points, setPoints] = useState(0);
@@ -93,10 +94,11 @@ export default function POS() {
     const lines = cart.map(c => {
       const p = pmap[c.productId];
       if (!p) return null;
-      const unitPrice = c.price ?? p.price;
+      const ui = unitInfo(p, c);
+      const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
       const a = allocs[c.key] || { alloc: [], blocked: [] };
       const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...unitInfo(p, c) };
+      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...ui };
     }).filter(Boolean);
     const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
     const billLines = lines.map(l => ({
@@ -110,7 +112,7 @@ export default function POS() {
     const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
     const bill = computeBill(billLines, bd, inter);
     return { lines, billLines, bill, maxPts, usePts, inter, blocked: lines.filter(l => !l.alloc.alloc.length && l.alloc.blocked.length) };
-  }, [cart, allocs, offers, pmap, customer, points, b2b, settings]);
+  }, [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -163,16 +165,26 @@ export default function POS() {
 
   const setQty = (key, qty) => setCart(c => c.map(x => x.key === key ? { ...x, qty: Math.max(0, qty) } : x).filter(x => x.qty > 0));
   const removeLine = key => setCart(c => c.filter(x => x.key !== key));
+  // Wholesale prices are lower, so a cashier needs a manager's PIN to switch a bill to them.
+  const switchWholesale = async () => {
+    if (priceMode === 'wholesale') return;
+    const ok = ['owner', 'manager'].includes(user.role) || await approve('Switch this bill to wholesale prices');
+    if (!ok) return;
+    setPriceMode('wholesale');
+    audit('wholesale_bill', { items: cart.length }, user);
+  };
   const setUnit = (key, i) => setCart(c => c.map(x => x.key === key ? { ...x, unit: i } : x));
 
   const overridePrice = async line => {
-    const v = await new Promise(res => setModal({ type: 'price', line, res }));
+    const f = line.unitFactor || 1;          // the cashier types the price of ONE unit (e.g. per Bag)
+    const shown = f === 1 ? line : { ...line, unitPrice: line.unitPrice * f, mrp: line.mrp * f, cost: line.cost * f };
+    const v = await new Promise(res => setModal({ type: 'price', line: shown, res }));
     setModal(null);
     if (v == null) return;
-    const mgr = await approve(`Change price of ${line.name} to ${inr(v)} (shelf price ${inr(line.unitPrice)})`);
+    const mgr = await approve(`Change price of ${line.name} to ${inr(v)}${line.unitName ? ' per ' + line.unitName : ''} (shelf price ${inr(shown.unitPrice)})`);
     if (!mgr) return;
-    setCart(c => c.map(x => x.key === line.key ? { ...x, price: Number(v) } : x));
-    audit('price_override', { product: line.name, from: line.unitPrice, to: v, approvedBy: mgr.name }, user);
+    setCart(c => c.map(x => x.key === line.key ? { ...x, price: Math.round((Number(v) / f) * 1e6) / 1e6 } : x));
+    audit('price_override', { product: line.name, from: shown.unitPrice, to: v, unit: line.unitName || null, approvedBy: mgr.name }, user);
   };
 
   const clearBill = async (force = false) => {
@@ -181,13 +193,13 @@ export default function POS() {
       if (!mgr) return;
       audit('bill_cancel', { items: cart.length, value: view.bill.totals.payable, approvedBy: mgr.name }, user);
     }
-    setCart([]); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
+    setCart([]); setPriceMode('retail'); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
     scanRef.current?.focus();
   };
 
   const hold = async () => {
     if (!cart.length) return;
-    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
+    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, priceMode, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
     toast('Bill put on hold. Press F8 to bring it back.');
     clearBill(true);
   };
@@ -196,7 +208,7 @@ export default function POS() {
     if (b2b && !validGSTIN(b2b)) { toast('That GSTIN is not valid. Fix it or clear it for a normal bill.', 'bad'); return; }
     const sale = await saveSale({
       bill: view.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
-      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId,
+      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId, priceMode,
     });
     if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
     const short = view.lines.filter(l => l.alloc.shortfall > 0);
@@ -257,7 +269,12 @@ export default function POS() {
             </form>
           </Card>
 
-          <Card title={`Items (${view.lines.length})`} actions={cart.length ? <Btn size="sm" kind="ghost" onClick={() => clearBill()}>Cancel bill</Btn> : null}>
+          <Card title={`Items (${view.lines.length})`} actions={<>
+            <div className="price-mode" role="group" aria-label="Price list">
+              <button className={priceMode === 'retail' ? 'on' : ''} onClick={() => setPriceMode('retail')}>Retail</button>
+              <button className={priceMode === 'wholesale' ? 'on' : ''} onClick={switchWholesale}>Wholesale</button>
+            </div>
+            {cart.length ? <Btn size="sm" kind="ghost" onClick={() => clearBill()}>Cancel bill</Btn> : null}</>}>
             {!view.lines.length && <div className="empty">Scan the first item. Loose items (vegetables, dry fruits) ask for the weight or read it from the scale.</div>}
             {view.billLines.map((l, i) => {
               const a = l.alloc;
@@ -267,7 +284,7 @@ export default function POS() {
                   <div className="grow">
                     <div className="name">{l.name}</div>
                     <div className="small muted">
-                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{inr(l.unitPrice)}{l.units ? `/${l.units.find(x => x.base).name}` : l.uom === 'KG' ? '/kg' : ''}</button>
+                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{l.units ? `${inr(l.unitPrice * l.unitFactor)}/${l.unitName}` : <>{inr(l.unitPrice)}{l.uom === 'KG' ? '/kg' : ''}</>}</button>
                       {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%
                       {a.alloc.filter(x => x.batchNo !== 'NO-STOCK').map(x => <span key={x.batchId}> · {x.batchNo}{x.expiry ? ` (exp ${x.expiry})` : ''}</span>)}
                     </div>
@@ -354,7 +371,7 @@ export default function POS() {
       {modal?.type === 'receipt' && <ReceiptModal sale={modal.sale} settings={settings} onClose={() => { setModal(null); scanRef.current?.focus(); }} />}
       {modal?.type === 'recall' && <RecallModal onClose={() => setModal(null)} onPick={async h => {
         if (cart.length && !(await confirm('Replace the current bill with the held one?', 'Replace'))) return;
-        setCart(h.cart); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
+        setCart(h.cart); setPriceMode(h.priceMode || 'retail'); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
       }} />}
       {modal?.type === 'return' && <ReturnModal settings={settings} onClose={() => setModal(null)} onDone={async (bill, payments, orig) => {
         if (bill.totals.payable > (settings.supervisorRefundLimit || 500)) {

@@ -9,6 +9,7 @@ export function receiptText(sale, s) {
   const L = [];
   L.push(`*${s.storeName}*`);
   L.push(`${sale.type === 'return' ? 'Credit note' : 'Bill'} ${sale.no} · ${fmtDT(sale.ts)}`);
+  if (sale.priceMode === 'wholesale') L.push('_Wholesale rate_');
   L.push('');
   sale.lines.forEach(l => L.push(`${l.name}${l.localName && s.billNames !== 'none' ? ' / ' + l.localName : ''} × ${l.unitName ? soldQty(l) : num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
   L.push('');
@@ -40,6 +41,7 @@ export default function Receipt({ sale, settings: s }) {
       {s.gstin ? <div className="c">GSTIN: {s.gstin}</div> : <div className="c">GSTIN: [not set]</div>}
       {s.fssai && <div className="c">FSSAI: {s.fssai}</div>}
       <div className="c"><b>{sale.type === 'return' ? 'CREDIT NOTE' : sale.b2b ? 'TAX INVOICE' : 'BILL OF SUPPLY / TAX INVOICE'}</b></div>
+      {sale.priceMode === 'wholesale' && <div className="c small">Wholesale rate</div>}
       <hr />
       <div>No: {sale.no}{sale.origNo ? ` (against ${sale.origNo})` : ''}</div>
       <div>Date: {fmtDT(sale.ts)} · {sale.cashierName}</div>

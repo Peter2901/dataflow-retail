@@ -10,7 +10,10 @@ export const GST_SLABS = [0, 5, 18, 40];
  */
 export function computeBill(lines, billDiscounts = [], interState = false) {
   const work = lines.map(l => {
-    const gross = Math.round(toPaise(l.unitPrice) * Number(l.qty));
+    // A price per Kg worked out from a Bag price (₹4100 ÷ 30) has more than 2 decimals; do not round it to a paisa
+    // before multiplying, or 1 Bag would come to ₹4100.10. Normal 2-decimal prices take the old path (same result as before).
+    const cents = Number(l.unitPrice) * 100;
+    const gross = Math.abs(cents - Math.round(cents)) < 1e-6 ? Math.round(toPaise(l.unitPrice) * Number(l.qty)) : Math.round(cents * Number(l.qty));
     const disc = Math.min(gross, toPaise(l.lineDisc || 0));
     return { ...l, _gross: gross, _afterLine: gross - disc, _lineDisc: disc };
   });

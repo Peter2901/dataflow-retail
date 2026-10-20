@@ -148,6 +148,11 @@ kept in (Kg here). Everything inside the app stays in that one unit, so GST, sto
 - **Counter:** a unit box on each bill line (Bag / Kg / Gram). The bill prints what was sold, e.g. `550 Gram`.
 - **Purchase bill:** "Buying in Bag / Kg / Gram" on the line; the rate and pieces-per-unit fill in by themselves.
 - **Stock and Products:** show `1 Bag 29 Kg 450 Gram` next to the plain number.
+- **Retail and wholesale prices:** on the product, retail has a price per Unit 1 and per Unit 2, and wholesale has a price
+  per Unit 1, 2 and 3 (one wholesale price if the product has one unit). An empty box uses the automatic price
+  (selling price × units). Prices cannot be above MRP, and wholesale cannot be below the purchase rate.
+  At the counter, a **Retail / Wholesale** switch sits above the items. A cashier needs a manager PIN for Wholesale.
+  The bill prints "Wholesale rate". Excel columns: `RETAIL_PRICE_UNIT_1/2`, `WHOLESALE_PRICE_UNIT_1/2/3`, `WHOLESALE_PRICE`.
 - **Excel:** columns `UNIT_1`, `UNIT_2`, `UNIT_3`, `UNIT_1_TO_2`, `UNIT_2_TO_3`, `STOCK_UNIT` (template has an example).
 
 ## GST Saathi

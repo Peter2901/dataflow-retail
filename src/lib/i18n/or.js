@@ -1128,5 +1128,12 @@ export default {
  "Unit 2 — middle (e.g. Kg)": "ୟୁନିଟ୍ 2 — ମଝିରେ (ଯେପରି କିଲୋ)",
  "Unit 3 — smallest (e.g. Gram)": "ୟୁନିଟ୍ 3 — ସବୁଠୁ ଛୋଟ (ଯେପରି ଗ୍ରାମ)",
  "Stock, price and cost are kept per": "ଷ୍ଟକ୍, ଦର ଓ ଲାଗତ ଏହି ହିସାବରେ ରହେ",
- "Unit (set by Units below)": "ୟୁନିଟ୍ (ତଳ ୟୁନିଟ୍ ଅନୁସାରେ)"
+ "Unit (set by Units below)": "ୟୁନିଟ୍ (ତଳ ୟୁନିଟ୍ ଅନୁସାରେ)",
+ "Retail and wholesale prices": "ଖୁଚୁରା ଓ ପାଇକାରୀ ଦର",
+ "All prices include GST. Leave a box empty to use the automatic price.": "ସବୁ ଦର GST ସହିତ। ସ୍ୱୟଂଚାଳିତ ଦର ପାଇଁ ଘର ଖାଲି ଛାଡ଼ନ୍ତୁ।",
+ "Retail price (₹) — the Selling price above": "ଖୁଚୁରା ଦର (₹) — ଉପରର ବିକ୍ରି ଦର",
+ "Wholesale price (₹)": "ପାଇକାରୀ ଦର (₹)",
+ "Retail": "ଖୁଚୁରା",
+ "Wholesale": "ପାଇକାରୀ",
+ "Wholesale rate": "ପାଇକାରୀ ଦର"
 };

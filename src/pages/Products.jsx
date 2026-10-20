@@ -13,7 +13,7 @@ import Stickers from '../ui/Stickers.jsx';
 import { smartSearch } from '../lib/search.js';
 import { findDuplicates, mergeProducts, suggestHsnGst } from '../lib/productTools.js';
 import { useConfirm } from '../ui/kit.jsx';
-import { unitList, unitErrors, breakdown, plain, uomCode } from '../lib/units.js';
+import { unitList, unitErrors, breakdown, plain, uomCode, retailUnitPrice, priceErrors } from '../lib/units.js';
 
 export default function Products() {
   const { storeId, user, param } = useApp();
@@ -115,6 +115,7 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <label className="check"><input type="checkbox" checked={p.active !== false} onChange={f('active')} /> Show at the counter</label>
       </div>
       <UnitsEditor p={p} setP={setP} />
+      <PriceLists p={p} setP={setP} />
     </Modal>
   );
 }
@@ -144,9 +145,44 @@ function UnitsEditor({ p, setP }) {
       </div>
       {baseNow && <div className="small muted" style={{ marginTop: 6 }}>
         MRP, selling price and purchase rate above are <b>per {baseNow.name}</b>.
-        {price > 0 && <> Selling: {L.map(x => `₹${plain(price * x.factor, 2)} per ${x.name}`).join(' · ')}.</>}
+        {price > 0 && <> Retail: {L.map(x => `₹${plain(retailUnitPrice(p, x.i), 2)} per ${x.name}`).join(' · ')}.</>}
         {cost > 0 && <> Buying: {L.map(x => `₹${plain(cost * x.factor, 2)} per ${x.name}`).join(' · ')}.</>}
       </div>}
+      {errs.map(e => <div key={e} className="err small" style={{ marginTop: 4 }}>{e}</div>)}
+    </div>
+  );
+}
+
+// Retail prices (Unit 1 and Unit 2) and wholesale prices (every unit). Blank = worked out from the selling price.
+function PriceLists({ p, setP }) {
+  const L = unitList(p);
+  const price = Number(p.price) || 0;
+  const setR = (i, v) => setP(x => { const r = [...(x.prices?.r || ['', ''])]; r[i] = v; return { ...x, prices: { r, w: x.prices?.w || ['', '', ''] } }; });
+  const setW = (i, v) => setP(x => { const w = [...(x.prices?.w || ['', '', ''])]; w[i] = v; return { ...x, prices: { r: x.prices?.r || ['', ''], w } }; });
+  const errs = priceErrors(p);
+  const ph = v => (v > 0 ? plain(v, 2) : '');
+  return (
+    <div className="units-box">
+      <div className="units-head"><b>Retail and wholesale prices</b><span className="small muted">All prices include GST. Leave a box empty to use the automatic price.</span></div>
+      {!L.length ? (
+        <div className="grid g3">
+          <Input label="Retail price (₹) — the Selling price above" value={p.price} onChange={e => setP({ ...p, price: e.target.value })} id="p-retail1" />
+          <Input label="Wholesale price (₹)" type="number" step="any" value={p.wholesale ?? ''} onChange={e => setP({ ...p, wholesale: e.target.value })} placeholder={ph(price)} id="p-wh1" />
+        </div>
+      ) : (
+        <div className="stack-s">
+          <div><div className="small muted" style={{ marginBottom: 4 }}>Retail — price per {L[0].name} and per {L[1].name}</div>
+            <div className="grid g3">
+              {[0, 1].map(i => L[i].base
+                ? <Input key={i} label={`Retail ₹ per ${L[i].name} (= Selling price)`} type="number" step="any" value={p.price} onChange={e => setP({ ...p, price: e.target.value })} id={`p-r${i}`} />
+                : <Input key={i} label={`Retail ₹ per ${L[i].name}`} type="number" step="any" value={p.prices?.r?.[i] ?? ''} onChange={e => setR(i, e.target.value)} placeholder={ph(retailUnitPrice(p, i))} id={`p-r${i}`} />)}
+            </div></div>
+          <div><div className="small muted" style={{ marginBottom: 4 }}>Wholesale — price per {L.map(u => u.name).join(', ')}</div>
+            <div className="grid g3">
+              {L.map(u => <Input key={u.i} label={`Wholesale ₹ per ${u.name}`} type="number" step="any" value={p.prices?.w?.[u.i] ?? ''} onChange={e => setW(u.i, e.target.value)} placeholder={ph(retailUnitPrice(p, u.i))} id={`p-w${u.i}`} />)}
+            </div></div>
+        </div>
+      )}
       {errs.map(e => <div key={e} className="err small" style={{ marginTop: 4 }}>{e}</div>)}
     </div>
   );

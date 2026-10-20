@@ -1128,5 +1128,12 @@ export default {
  "Unit 2 — middle (e.g. Kg)": "इकाई 2 — बीच की (जैसे किलो)",
  "Unit 3 — smallest (e.g. Gram)": "इकाई 3 — सबसे छोटी (जैसे ग्राम)",
  "Stock, price and cost are kept per": "स्टॉक, भाव और लागत इसके हिसाब से रखे जाते हैं",
- "Unit (set by Units below)": "इकाई (नीचे की इकाइयों से तय)"
+ "Unit (set by Units below)": "इकाई (नीचे की इकाइयों से तय)",
+ "Retail and wholesale prices": "खुदरा और थोक भाव",
+ "All prices include GST. Leave a box empty to use the automatic price.": "सभी भाव GST सहित हैं। अपने-आप वाला भाव लेने के लिए खाना खाली छोड़ें।",
+ "Retail price (₹) — the Selling price above": "खुदरा भाव (₹) — ऊपर वाला बिक्री भाव",
+ "Wholesale price (₹)": "थोक भाव (₹)",
+ "Retail": "खुदरा",
+ "Wholesale": "थोक",
+ "Wholesale rate": "थोक भाव"
 };
