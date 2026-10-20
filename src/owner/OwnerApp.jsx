@@ -68,7 +68,7 @@ function Setup({ onDone }) {
           <button className="btn ghost" onClick={paste} disabled={busy}>Paste</button>
           <button className="btn primary" onClick={() => go(code)} disabled={busy || !code.trim()}>{busy ? 'Connecting…' : 'Connect'}</button>
         </div>
-        <p className="fine">Nothing is stored on the counter by this app. It only reads.</p>
+        <p className="fine">This app only reads. It cannot change bills, prices or stock.</p>
       </div>
     </div>
   );
@@ -113,7 +113,7 @@ function Hours({ hours }) {
     <>
       <div className="card-h"><h2>Sales by hour</h2>{peak?.v > 0 && <span className="muted sm">peak {lbl(peak.h)}–{lbl(peak.h + 1)}</span>}</div>
       <div className="bars">
-        {list.map(x => <div key={x.h} title={`${lbl(x.h)}: ${inr(x.v)}`} className={x.h === now ? 'now' : ''} style={{ height: `${Math.max(2, (x.v / max) * 100)}%`, opacity: x.v ? 1 : .25 }} />)}
+        {list.map(x => <div key={x.h} title={`${lbl(x.h)}: ${inr(x.v)}`} className={x.h === now && x.v > 0 ? 'now' : ''} style={{ height: `${Math.max(2, (x.v / max) * 100)}%`, opacity: x.v ? 1 : .25 }} />)}
       </div>
       <div className="hours">{list.filter((_, i) => i % 3 === 0).map(x => <span key={x.h}>{lbl(x.h)}</span>)}</div>
     </>
@@ -178,7 +178,7 @@ function Counters({ t }) {
               <span className="mono amt-l">{inr(c.sales)}</span>
               <span className="muted sm">{c.bills} bill{c.bills === 1 ? '' : 's'}{c.user ? ` · ${c.user}` : ''}</span>
             </div>
-            {!on && c.lastSeen && <div className="sm warn-t">Still billing offline, probably. Its bills arrive when its internet is back.</div>}
+            {!on && c.lastSeen && <div className="sm warn-t">May still be billing without internet. Its bills will arrive when it reconnects.</div>}
             {on && c.pending > 0 && <div className="sm muted">{c.pending} change{c.pending === 1 ? '' : 's'} waiting to send</div>}
           </section>
         );
