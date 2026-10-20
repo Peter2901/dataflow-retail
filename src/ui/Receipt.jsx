@@ -6,7 +6,7 @@ export function receiptText(sale, s) {
   L.push(`*${s.storeName}*`);
   L.push(`${sale.type === 'return' ? 'Credit note' : 'Bill'} ${sale.no} · ${fmtDT(sale.ts)}`);
   L.push('');
-  sale.lines.forEach(l => L.push(`${l.name}${l.localName ? ' / ' + l.localName : ''} × ${num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
+  sale.lines.forEach(l => L.push(`${l.name}${l.localName && s.billNames !== 'none' ? ' / ' + l.localName : ''} × ${num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
   L.push('');
   if (sale.totals.lineDisc + sale.totals.billDisc > 0) L.push(`Discounts: −${inr(sale.totals.lineDisc + sale.totals.billDisc)}`);
   L.push(`*Total: ${inr(sale.totals.payable)}*`);
@@ -14,7 +14,7 @@ export function receiptText(sale, s) {
   if (sale.pointsEarned) L.push(`Points earned: ${sale.pointsEarned}`);
   L.push(`Paid by: ${sale.payments.map(p => p.mode.toUpperCase()).join(' + ')}`);
   L.push('');
-  L.push('Thank you for shopping with us!');
+  L.push(s.billFooter || 'Thank you for shopping with us!');
   return L.join('\n');
 }
 
@@ -28,9 +28,13 @@ export default function Receipt({ sale, settings: s }) {
   const t = sale.totals;
   return (
     <div className="receipt print-area">
+      {s.logo && <div className="c"><img src={s.logo} alt="" style={{ width: 40, height: 40, objectFit: 'contain' }} /></div>}
       <h4>{s.storeName}</h4>
-      <div className="c">{s.address}</div>
+      {s.storeNameLocal && <div className="c loc">{s.storeNameLocal}</div>}
+      <div className="c">{[s.address, s.city, s.pin].filter(Boolean).join(', ')}</div>
+      {s.phone && <div className="c">Ph: {s.phone}</div>}
       {s.gstin ? <div className="c">GSTIN: {s.gstin}</div> : <div className="c">GSTIN: [not set]</div>}
+      {s.fssai && <div className="c">FSSAI: {s.fssai}</div>}
       <div className="c"><b>{sale.type === 'return' ? 'CREDIT NOTE' : sale.b2b ? 'TAX INVOICE' : 'BILL OF SUPPLY / TAX INVOICE'}</b></div>
       <hr />
       <div>No: {sale.no}{sale.origNo ? ` (against ${sale.origNo})` : ''}</div>
@@ -41,7 +45,7 @@ export default function Receipt({ sale, settings: s }) {
       <table><tbody>
         {sale.lines.map((l, i) => (
           <React.Fragment key={i}>
-            <tr><td colSpan="3">{l.name}{l.localName ? <div className="loc">{l.localName}</div> : null}</td></tr>
+            <tr><td colSpan="3">{l.name}{l.localName && s.billNames !== 'none' ? <div className="loc">{l.localName}</div> : null}</td></tr>
             <tr><td>{num(l.qty, l.uom === 'KG' ? 3 : 0)} × {l.unitPrice}</td><td className="r">MRP {l.mrp}</td><td className="r">{l.total.toFixed(2)}</td></tr>
             <tr><td colSpan="3" style={{ fontSize: 10 }}>HSN {l.hsn} · GST {l.gst}%{l.lineDisc ? ` · disc ${l.lineDisc.toFixed(2)}` : ''}</td></tr>
           </React.Fragment>
@@ -68,7 +72,7 @@ export default function Receipt({ sale, settings: s }) {
       {t.savings > 0 && <div className="c" style={{ marginTop: 6 }}><b>You saved {inr(t.savings)} on MRP</b></div>}
       {sale.pointsEarned ? <div className="c">Points earned: {sale.pointsEarned}</div> : null}
       <div className="c" style={{ marginTop: 6, fontSize: 9 }}>Chain {sale.hash?.slice(0, 16)}</div>
-      <div className="c">Thank you! Visit again.</div>
+      <div className="c">{s.billFooter || 'Thank you! Visit again.'}</div>
     </div>
   );
 }

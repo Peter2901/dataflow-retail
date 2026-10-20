@@ -28,6 +28,25 @@ export const HUB_TOOLS = [
   { id: 'ask', kind: 'ai', title: 'Ask your shop', text: 'Ask in Hinglish, Hindi or Odia. Answers come from your own data.', page: 'assistant' },
 ];
 
+const HUB_ICON = {
+  todo: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  expiry: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  festivals: '<path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4Z"/><path d="M6 17l.7 1.8 1.8.7-1.8.7L6 22l-.7-1.8-1.8-.7 1.8-.7Z"/>',
+  customers: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8"/>',
+  udhaar: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/>',
+  staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  weekly: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
+  pchecks: '<path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/>',
+  dups: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  gst: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/>',
+  orders: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 21l-5.3-1.1A8.5 8.5 0 1 1 21 11.5Z"/>',
+  scan: '<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M4 12h16"/>',
+  voice: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>',
+  pack: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3.2"/><path d="M8 5l1.2-2h5.6L16 5"/>',
+  hsn: '<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>',
+  khata: '<path d="M4 5h16v14H4z"/><path d="M7 9h10M7 13h7"/>',
+  ask: '<path d="M21 11.5a8.4 8.4 0 0 1-1.1 4.2L21 21l-5.3-1.1A8.5 8.5 0 1 1 21 11.5Z"/><path d="M9 10h6M9 13h4"/>',
+};
 const KIND = { free: { tone: 'ok', label: 'Free' }, ai: { tone: 'accent', label: 'AI if needed' } };
 
 export default function Hub() {
@@ -64,7 +83,8 @@ export default function Hub() {
           <div className="hub-grid">
             {section(kind).map(t => (
               <button key={t.id} className={`hub-card hub-${kind}`} onClick={() => go(t.page, t.param || null)}>
-                <span className="row between"><b>{t.title}</b><Badge tone={KIND[kind].tone}>{KIND[kind].label}</Badge></span>
+                <span className="row between"><span className={`hub-icon hub-icon-${kind}`}><svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: HUB_ICON[t.id] || HUB_ICON.todo }} /></span><Badge tone={KIND[kind].tone}>{KIND[kind].label}</Badge></span>
+                <b>{t.title}</b>
                 <span className="small muted">{t.text}</span>
               </button>
             ))}

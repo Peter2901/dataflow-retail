@@ -1067,3 +1067,61 @@ Suppliers due this week {a}	इस हफ़्ते सप्लायर क�
 {a} at cost · remove now	लागत {a} · अभी हटाएँ	ଖର୍ଚ୍ଚ {a} · ଏବେ ହଟାନ୍ତୁ
 {a} at cost	लागत {a}	ଖର୍ଚ୍ଚ {a}
 . Load your real product list in Import & setup, then clear the samples in Settings.	। अपनी असली सामान सूची इम्पोर्ट और सेटअप में लोड करें, फिर सेटिंग्स में नमूना हटाएँ।	। ଆପଣଙ୍କ ପ୍ରକୃତ ଜିନିଷ ତାଲିକା ଇମ୍ପୋର୍ଟ ଓ ସେଟଅପରେ ଲୋଡ୍ କରନ୍ତୁ, ତାପରେ ସେଟିଂସରେ ନମୁନା ହଟାନ୍ତୁ।
+Dashboard	डैशबोर्ड	ଡ୍ୟାସବୋର୍ଡ
+Stock & buying	स्टॉक और खरीद	ଷ୍ଟକ୍ ଓ କିଣା
+Offers & prices	ऑफ़र और दाम	ଅଫର ଓ ଦାମ
+Customers & points	ग्राहक और पॉइंट	ଗ୍ରାହକ ଓ ପଏଣ୍ଟ
+Udhaar & dues	उधार और बकाया	ଉଧାର ଓ ବାକି
+Store & owner	दुकान और मालिक	ଦୋକାନ ଓ ମାଲିକ
+Store & owner details	दुकान और मालिक की जानकारी	ଦୋକାନ ଓ ମାଲିକଙ୍କ ତଥ୍ୟ
+Fill this once. It prints on every bill and is used for GST, UPI and WhatsApp messages.	इसे एक बार भरें। यह हर बिल पर छपता है और GST, UPI और WhatsApp संदेशों में काम आता है।	ଏହା ଥରେ ଭରନ୍ତୁ। ଏହା ପ୍ରତି ବିଲରେ ଛପାହୁଏ ଓ GST, UPI ଓ WhatsApp ମେସେଜରେ ବ୍ୟବହାର ହୁଏ।
+{a} of {b} must-fill done	{b} में से {a} ज़रूरी भरे	{b} ମଧ୍ୟରୁ {a} ଜରୁରୀ ଭରାଗଲା
+Save details	जानकारी सेव करें	ତଥ୍ୟ ସେଭ୍ କରନ୍ତୁ
+Only the owner can change these details.	यह जानकारी सिर्फ़ मालिक बदल सकते हैं।	ଏହି ତଥ୍ୟ କେବଳ ମାଲିକ ବଦଳାଇପାରିବେ।
+Owner	मालिक	ମାଲିକ
+GST & licences	GST और लाइसेंस	GST ଓ ଲାଇସେନ୍ସ
+Payments & bill	भुगतान और बिल	ପେମେଣ୍ଟ ଓ ବିଲ୍
+How your bill top looks	आपके बिल का ऊपरी हिस्सा ऐसा दिखेगा	ଆପଣଙ୍କ ବିଲର ଉପର ଭାଗ ଏପରି ଦେଖାଯିବ
+Store name *	दुकान का नाम *	ଦୋକାନର ନାମ *
+Store name in Hindi / Odia (on bill)	हिंदी / ओड़िया में दुकान का नाम (बिल पर)	ହିନ୍ଦୀ / ଓଡ଼ିଆରେ ଦୋକାନର ନାମ (ବିଲରେ)
+Address *	पता *	ଠିକଣା *
+City *	शहर *	ସହର *
+PIN code *	पिन कोड *	ପିନ୍ କୋଡ୍ *
+State *	राज्य *	ରାଜ୍ୟ *
+Store phone *	दुकान का फ़ोन *	ଦୋକାନର ଫୋନ୍ *
+Logo (on bill)	लोगो (बिल पर)	ଲୋଗୋ (ବିଲରେ)
+Upload logo	लोगो अपलोड करें	ଲୋଗୋ ଅପଲୋଡ୍ କରନ୍ତୁ
+Change logo	लोगो बदलें	ଲୋଗୋ ବଦଳାନ୍ତୁ
+Owner name *	मालिक का नाम *	ମାଲିକଙ୍କ ନାମ *
+Mobile *	मोबाइल *	ମୋବାଇଲ୍ *
+WhatsApp for daily summary	रोज़ के सारांश के लिए WhatsApp	ଦୈନିକ ସାରାଂଶ ପାଇଁ WhatsApp
+Email (for reports)	ईमेल (रिपोर्ट के लिए)	ଇମେଲ୍ (ରିପୋର୍ଟ ପାଇଁ)
+GSTIN *	GSTIN *	GSTIN *
+Legal name (as on GST certificate) *	क़ानूनी नाम (GST प्रमाणपत्र जैसा) *	ଆଇନଗତ ନାମ (GST ପ୍ରମାଣପତ୍ର ଅନୁସାରେ) *
+How you file GST	आप GST कैसे फ़ाइल करते हैं	ଆପଣ GST କିପରି ଫାଇଲ୍ କରନ୍ତି
+Monthly	मासिक	ମାସିକ
+Composition scheme	कंपोज़िशन स्कीम	କମ୍ପୋଜିସନ୍ ସ୍କିମ୍
+FSSAI licence no.	FSSAI लाइसेंस नंबर	FSSAI ଲାଇସେନ୍ସ ନମ୍ବର
+Shop & establishment no.	शॉप एंड एस्टैब्लिशमेंट नंबर	ଦୋକାନ ଓ ସଂସ୍ଥାନ ନମ୍ବର
+Your CA / accountant (name, phone)	आपके CA / अकाउंटेंट (नाम, फ़ोन)	ଆପଣଙ୍କ CA / ଆକାଉଣ୍ଟାଣ୍ଟ (ନାମ, ଫୋନ୍)
+UPI ID *	UPI ID *	UPI ID *
+Thank-you line on bill	बिल पर धन्यवाद पंक्ति	ବିଲରେ ଧନ୍ୟବାଦ ଧାଡି
+Item names on bill	बिल पर सामान के नाम	ବିଲରେ ଜିନିଷର ନାମ
+English + Hindi/Odia name	अंग्रेज़ी + हिंदी/ओड़िया नाम	ଇଂରାଜୀ + ହିନ୍ଦୀ/ଓଡ଼ିଆ ନାମ
+English only	सिर्फ़ अंग्रेज़ी	କେବଳ ଇଂରାଜୀ
+Counter codes (T1, T2…) and bill numbers are in Settings › Store & GST on each counter.	काउंटर कोड (T1, T2…) और बिल नंबर हर काउंटर पर सेटिंग्स › दुकान और GST में हैं।	କାଉଣ୍ଟର କୋଡ୍ (T1, T2…) ଓ ବିଲ୍ ନମ୍ବର ପ୍ରତି କାଉଣ୍ଟରରେ ସେଟିଂସ୍ › ଦୋକାନ ଓ GST ରେ ଅଛି।
+All must-fill details are done.	सभी ज़रूरी जानकारी भरी गई।	ସବୁ ଜରୁରୀ ତଥ୍ୟ ଭରାଗଲା।
+Still needed:	अभी बाकी:	ଏବେ ବାକି:
+GSTIN looks right	GSTIN सही लगता है	GSTIN ଠିକ୍ ଲାଗୁଛି
+This GSTIN does not pass the check	यह GSTIN जाँच में सही नहीं	ଏହି GSTIN ଯାଞ୍ଚରେ ଠିକ୍ ନୁହେଁ
+15 characters	15 अक्षर	15 ଅକ୍ଷର
+PIN code must be 6 digits.	पिन कोड 6 अंकों का होना चाहिए।	ପିନ୍ କୋଡ୍ 6 ଅଙ୍କର ହେବା ଦରକାର।
+Phone numbers need 10 digits.	फ़ोन नंबर 10 अंकों के होने चाहिए।	ଫୋନ୍ ନମ୍ବର 10 ଅଙ୍କର ହେବା ଦରକାର।
+Udhaar	उधार	ଉଧାର
+Stock	स्टॉक	ଷ୍ଟକ୍
+Buy	खरीद	କିଣା
+Money	पैसा	ଟଙ୍କା
+Light	हल्का	ହାଲୁକା
+Dark	गहरा	ଗାଢ
+Light or dark screen	हल्की या गहरी स्क्रीन	ହାଲୁକା କିମ୍ବା ଗାଢ ସ୍କ୍ରିନ୍
+Take payment	भुगतान लें	ପେମେଣ୍ଟ ନିଅନ୍ତୁ

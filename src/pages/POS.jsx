@@ -14,6 +14,13 @@ import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
+// Payment tiles on the counter: the icon says what it is, the key badge says how to press it.
+const PAY_TILES = [
+  { mode: 'upi', label: 'UPI', key: 'F10', icon: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="4" height="4" rx=".8"/><path d="M14 7h3v3"/><path d="M7 14v3h3"/><path d="M14 14h3v3h-3z"/>' },
+  { mode: 'cash', label: 'Cash', key: 'F9', icon: '<path d="M6 3h12"/><path d="M6 8h12"/><path d="M6 13l8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/>' },
+  { mode: 'card', label: 'Card', key: 'F11', icon: '<rect x="2.5" y="5.5" width="17" height="13" rx="2.2"/><rect x="5.5" y="9.5" width="3.6" height="2.8" rx=".6"/><path d="M5.5 15.5h5M13 15.5h3"/><path d="M20.3 9.2a3.6 3.6 0 0 1 0 5.6M22.3 7.4a6.3 6.3 0 0 1 0 9.2"/>' },
+  { mode: 'credit', label: 'Udhaar', key: 'F12', icon: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M21.38 5.63a2.12 2.12 0 0 0-3-3l-5.01 5.01a2 2 0 0 0-.51.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.51Z"/>' },
+];
 
 export default function POS() {
   const { user, settings, storeId, param, go } = useApp();
@@ -186,13 +193,18 @@ export default function POS() {
     clearBill(true);
   };
 
+  const canPay = cart.length > 0 && !view.blocked.length;
   useHotkeys({
     F2: () => scanRef.current?.focus(),
     F3: () => setModal({ type: 'customer' }),
     F7: hold,
     F8: () => setModal({ type: 'recall' }),
-    F9: () => setModal({ type: 'return' }),
-    F12: () => cart.length && !view.blocked.length && setModal({ type: 'pay' }),
+    F6: () => setModal({ type: 'return' }),
+    // One key per way of paying (same keys as the tiles): F9 cash, F10 UPI, F11 card, F12 udhaar.
+    F9: () => canPay && setModal({ type: 'pay', mode: 'cash' }),
+    F10: () => canPay && setModal({ type: 'pay', mode: 'upi' }),
+    F11: () => canPay && setModal({ type: 'pay', mode: 'card' }),
+    F12: () => canPay && setModal({ type: 'pay', mode: 'credit' }),
   }, [cart, view, customer]);
 
   if (shift === undefined) return <p className="muted">Loading counter…</p>;
@@ -205,7 +217,7 @@ export default function POS() {
         <div><h1>Billing counter</h1><p className="muted">Counter {settings.terminal} · shift opened {fmtDT(shift.openedAt)} · {orderId ? 'Billing a WhatsApp order' : 'Scan or type to add items'}</p></div>
         <div className="row gap-s wrap">
           <Btn onClick={() => setModal({ type: 'recall' })}>Held bills <span className="kbd">F8</span></Btn>
-          <Btn onClick={() => setModal({ type: 'return' })}>Return <span className="kbd">F9</span></Btn>
+          <Btn onClick={() => setModal({ type: 'return' })}>Return <span className="kbd">F6</span></Btn>
           <Btn onClick={async () => { const m = await approve('Open the cash drawer without a sale'); if (m) { audit('drawer_open', { approvedBy: m.name }, user); toast('Drawer opening logged.'); } }}>Open drawer</Btn>
           <Btn onClick={() => setModal({ type: 'shift', mode: 'x' })}>Shift report</Btn>
           <Btn kind="dark" onClick={() => setModal({ type: 'shift', mode: 'z' })}>Close shift</Btn>
@@ -264,7 +276,7 @@ export default function POS() {
           </Card>
           <div className="keys small muted">
             <span><span className="kbd">F2</span> scan</span><span><span className="kbd">F3</span> customer</span><span><span className="kbd">F7</span> hold</span>
-            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F9</span> return</span><span><span className="kbd">F12</span> pay</span>
+            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F6</span> return</span><span><span className="kbd">F9–F12</span> pay</span>
           </div>
         </div>
 
@@ -304,7 +316,15 @@ export default function POS() {
               <hr className="sep" />
               <div className="row"><span className="muted">To pay</span><span className="grand">{inr(t.payable)}</span></div>
               {t.savings > 0 && <div className="save-pill">Customer saves {inr(t.savings)} on MRP</div>}
-              <Btn kind="primary" size="lg" disabled={!cart.length || view.blocked.length > 0} onClick={() => setModal({ type: 'pay' })}>Take payment <span className="kbd">F12</span></Btn>
+              <div className="pay-tiles" role="group" aria-label="Take payment">
+                {PAY_TILES.map(pt => (
+                  <button key={pt.mode} type="button" className={`pay-tile pay-${pt.mode}`} disabled={!canPay} onClick={() => setModal({ type: 'pay', mode: pt.mode })} aria-label={`${pt.label}, shortcut ${pt.key}`}>
+                    <kbd className="pay-key">{pt.key}</kbd>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: pt.icon }} />
+                    <span>{pt.label}</span>
+                  </button>
+                ))}
+              </div>
               <Btn onClick={hold} disabled={!cart.length}>Hold bill <span className="kbd">F7</span></Btn>
             </div>
           </Card>
@@ -315,7 +335,7 @@ export default function POS() {
       {modal?.type === 'weight' && <WeightModal product={modal.product} onClose={() => setModal(null)} onAdd={kg => { setModal(null); addProduct(modal.product, kg); }} />}
       {modal?.type === 'price' && <PriceModal line={modal.line} onClose={() => modal.res(null)} onSave={v => modal.res(v)} />}
       {modal?.type === 'customer' && <CustomerModal onClose={() => setModal(null)} onPick={c => { setCust(c); setModal(null); scanRef.current?.focus(); }} />}
-      {modal?.type === 'pay' && <PayModal total={t.payable} customer={customer} due={due} settings={settings} onClose={() => setModal(null)} onDone={p => { setModal(null); finish(p); }} />}
+      {modal?.type === 'pay' && <PayModal initialMode={modal.mode || 'cash'} total={t.payable} customer={customer} due={due} settings={settings} onClose={() => setModal(null)} onDone={p => { setModal(null); finish(p); }} />}
       {modal?.type === 'receipt' && <ReceiptModal sale={modal.sale} settings={settings} onClose={() => { setModal(null); scanRef.current?.focus(); }} />}
       {modal?.type === 'recall' && <RecallModal onClose={() => setModal(null)} onPick={async h => {
         if (cart.length && !(await confirm('Replace the current bill with the held one?', 'Replace'))) return;
@@ -421,8 +441,8 @@ function CustomerModal({ onClose, onPick }) {
   );
 }
 
-function PayModal({ total, customer, due, settings, onClose, onDone }) {
-  const [mode, setMode] = useState('cash');
+function PayModal({ initialMode = 'cash', total, customer, due, settings, onClose, onDone }) {
+  const [mode, setMode] = useState(initialMode);
   const [tendered, setTendered] = useState('');
   const [ref, setRef] = useState('');
   const [split, setSplit] = useState([]);

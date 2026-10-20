@@ -162,3 +162,12 @@ the GSTR-2B match (with IMS guidance) and the GSTR-3B summary including ITC give
 - **Bilingual bills:** fill *Name in Hindi / Odia* on a product (or a `LOCAL_NAME` column in the Excel import) and it
   prints under the English name on the receipt.
 - The Hindi and Odia wording was written by Claude: have a native speaker check it once before wide use.
+
+## New look (from the approved design)
+
+- Colours, menu groups and payment tiles follow the design canvas "DataFlow Retail — new layout".
+- **Light / dark switch** (sun / moon) sits next to EN / हि / ଓ at the bottom of the menu; each device keeps its own choice.
+- **Billing counter keys:** F9 Cash · F10 UPI · F11 Card · F12 Udhaar · F7 hold · F8 recall · F6 return · F2 scan · F3 customer.
+  (In a normal Chrome window F11 may switch full screen; the installed Windows app does not have that problem.)
+- **Store & owner details** (menu, above Setup): store, owner, GSTIN, legal name, FSSAI, UPI, logo, bill footer. It prints on every bill.
+- **Phone tabs:** Home · Stock · Buy · Money (GST Saathi) · AI.
