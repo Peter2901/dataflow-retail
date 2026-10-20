@@ -68,6 +68,19 @@ and every 8 seconds sends its new rows to one shared `records` table and pulls t
   the last change wins.
 - Code: `src/lib/sync.js`.
 
+## Owner phone app (Android)
+
+View-only app for the owner: today's sales and profit, how customers paid, sales by hour, top items, every
+counter's online/offline status, WhatsApp orders, expired/expiring/low stock, and today's bills. It reads two
+summaries computed in Supabase (`owner_today`, `owner_alerts` in `supabase/setup.sql`), about 2 KB per refresh.
+
+- APK (fixed link, rebuilt on every push): https://github.com/Peter2901/dataflow-retail/releases/download/owner-app/DataFlow-Owner.apk
+- No-install version: https://peter2901.github.io/dataflow-retail/owner.html (Chrome › Install app)
+- Setup: counter › Settings › Cloud sync › *Owner phone app* › Share on WhatsApp (or scan the QR).
+- Code: `owner.html`, `src/owner/`. Android wrapper: Capacitor (`capacitor.config.json`, `.github/workflows/android.yml`).
+- Signing: the APK is signed with `android-signing/debug.keystore` so updates install over the old app.
+  This is a test key in a public repo — move it to a private GitHub secret before wider release.
+
 ## Not built yet (next phase)
 
 - Sending WhatsApp messages automatically (today each message opens WhatsApp ready to send; the WhatsApp Business API would send in bulk).
