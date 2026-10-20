@@ -2,7 +2,8 @@
 // shared `records` table and pulls everyone else's. Stock is kept correct by
 // replaying stock-move events, so two counters selling at once never overwrite
 // each other. Billing never waits for this — it runs in the background.
-import { db, SYNC_TABLES, getSettings, setSetting, setSyncCounter } from '../db.js';
+import { db, SYNC_TABLES, getSettings, setSyncCounter } from '../db.js';
+import { uid } from './util.js';
 
 const r3 = n => Math.round((Number(n) || 0) * 1000) / 1000;
 
@@ -50,20 +51,29 @@ async function pushTable(c, t) {
   const cur = await metaGet('push:' + t);
   const mine = (await db[t].filter(r => (r.updatedAt || 0) > cur && !r._oc).toArray());
   if (!mine.length) return 0;
-  const rows = mine.map(r => ({
-    table_name: t,
-    id: t === 'stockMoves' ? r.sid : String(r.id),
-    store_id: r.storeId || c.store,
-    counter: c.counter,
-    data: r,
-    updated_at: r.updatedAt,
-  }));
-  const res = await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
-    method: 'POST',
-    headers: { ...headers(c.key), Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify(rows),
-  });
-  if (!res.ok) throw new Error(`push ${t} ${res.status}`);
+  // Stock moves made before sync existed have no global id yet: give them one.
+  if (t === 'stockMoves') {
+    for (const r of mine) if (!r.sid) { r.sid = c.counter + ':' + uid(); await db.stockMoves.update(r.id, { sid: r.sid }); }
+  }
+  // One row per (table, id) — the cloud refuses the same row twice in one request.
+  const byId = new Map();
+  for (const r of mine) {
+    const id = t === 'stockMoves' ? r.sid : String(r.id);
+    if (!id || id === 'undefined') continue;
+    byId.set(id, { table_name: t, id, store_id: r.storeId || c.store, counter: c.counter, data: r, updated_at: r.updatedAt || Date.now() });
+  }
+  const rows = [...byId.values()];
+  for (let i = 0; i < rows.length; i += 400) {
+    const res = await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
+      method: 'POST',
+      headers: { ...headers(c.key), Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(rows.slice(i, i + 400)),
+    });
+    if (!res.ok) {
+      let why = ''; try { why = (await res.json()).message || ''; } catch { /* ignore */ }
+      throw new Error(`push ${t} ${res.status}${why ? ' — ' + why : ''}`);
+    }
+  }
   await metaSet('push:' + t, Math.max(cur, ...mine.map(r => r.updatedAt || 0)));
   return rows.length;
 }
@@ -83,23 +93,39 @@ async function applyRow(c, row) {
     return;
   }
   if (row.table_name === 'batches') {
+    // Quantity always comes from stock moves, never from another counter's copy.
     const existing = await db.batches.get(d.id);
-    await db.batches.put({ ...d, qty: existing ? existing.qty : 0, _oc: row.counter }); // qty comes from moves, not here
+    let qty;
+    if (existing) qty = existing.qty;
+    else qty = r3((await db.stockMoves.where('batchId').equals(d.id).toArray()).reduce((a, m) => a + (Number(m.qty) || 0), 0));
+    await db.batches.put({ ...d, qty, _oc: row.counter });
     return;
   }
+  if (!db[row.table_name]) return;
   await db[row.table_name].put({ ...d, _oc: row.counter });
 }
 
+// Pull by the server's row number (seq), not by anyone's clock, so a counter that
+// was offline for hours still delivers every bill when it reconnects. Each tick
+// re-reads the previous tick's rows once, to catch a save that was still in flight.
 async function pull(c) {
-  const cur = await metaGet('pull');
-  const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&updated_at=gt.${cur}&order=updated_at.asc&limit=1000`;
-  const res = await fetch(url, { headers: headers(c.key) });
-  if (!res.ok) throw new Error('pull ' + res.status);
-  const rows = await res.json();
-  let max = cur;
-  for (const row of rows) { await applyRow(c, row); if (row.updated_at > max) max = row.updated_at; }
-  if (rows.length) await metaSet('pull', max);
-  return rows.length;
+  const prevHi = await metaGet('pullPrevHi');
+  let cur = await metaGet('pullCur');
+  let hi = Math.max(prevHi, cur), pages = 0, more = false, n = 0;
+  while (pages < 10) {
+    const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,counter,data,seq`;
+    const res = await fetch(url, { headers: headers(c.key) });
+    if (!res.ok) throw new Error('pull ' + res.status);
+    const rows = await res.json();
+    for (const row of rows) { await applyRow(c, row); if (row.seq > hi) hi = row.seq; }
+    n += rows.length; pages++;
+    if (rows.length < 1000) { more = false; break; }
+    more = true; cur = rows[rows.length - 1].seq;
+  }
+  const nextCur = more ? hi : (prevHi === 0 ? hi : prevHi);
+  await metaSet('pullCur', nextCur);
+  await metaSet('pullPrevHi', hi);
+  return n;
 }
 
 async function countPending(c) {
@@ -158,10 +184,17 @@ export const SETUP_SQL = `create table if not exists records (
   counter text,
   data jsonb,
   updated_at bigint,
+  seq bigint,
   primary key (table_name, id)
 );
-create index if not exists records_pull on records (store_id, updated_at);
+-- The server numbers every saved row, so counters never depend on their own clocks.
+create sequence if not exists records_seq;
+create or replace function records_bump_seq() returns trigger language plpgsql set search_path = public as $$
+begin new.seq := nextval('records_seq'); return new; end $$;
+drop trigger if exists records_seq_trg on records;
+create trigger records_seq_trg before insert or update on records for each row execute function records_bump_seq();
+create index if not exists records_pull_seq on records (store_id, seq);
 alter table records enable row level security;
-create policy "app can read"  on records for select using (true);
-create policy "app can write" on records for insert with check (true);
-create policy "app can update" on records for update using (true) with check (true);`;
+create policy "app read" on records for select using (true);
+create policy "app insert" on records for insert with check (true);
+create policy "app update" on records for update using (true) with check (true);`;

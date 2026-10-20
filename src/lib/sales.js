@@ -29,9 +29,13 @@ async function nextInvoiceNo(settings, ts) {
   return invoiceNumber(settings.storeCode, settings.terminal, fy.short, cur);
 }
 
-// Bills are chained in the order they were saved (not by bill time), per store.
-export async function lastSaleHash(storeId) {
-  const all = await db.sales.where('storeId').equals(storeId).sortBy('chainSeq');
+// Bills are chained in the order they were saved (not by bill time), per counter.
+// The counter is the bill-number prefix (e.g. "S1T2"), so synced bills from other
+// counters sit in their own chains and never break this one.
+export const chainKey = s => String(s.no || '').split('/')[0];
+
+export async function lastSaleHash(storeId, key) {
+  const all = (await db.sales.where('storeId').equals(storeId).sortBy('chainSeq')).filter(s => chainKey(s) === key);
   return all.length ? all[all.length - 1].hash : 'GENESIS';
 }
 
@@ -43,7 +47,7 @@ export const chainInput = s => [s.prevHash, s.chainSeq, s.no, s.ts, s.totals.pay
 export async function saveSale({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null }) {
   const settings = await getSettings();
   const no = await nextInvoiceNo(settings, ts);
-  const prevHash = await lastSaleHash(storeId);
+  const prevHash = await lastSaleHash(storeId, chainKey({ no }));
   const chainSeq = Number(settings[`chain_${storeId}`] || 0) + 1;
   await setSetting(`chain_${storeId}`, chainSeq);
   const sale = {
@@ -89,13 +93,17 @@ export async function saveSale({ bill, payments, customer, user, shiftId, storeI
 // Re-checks every bill against the chain. Any deleted or edited bill breaks it.
 export async function verifyChain(storeId) {
   const all = await db.sales.where('storeId').equals(storeId).sortBy('chainSeq');
-  let prev = 'GENESIS';
+  const chains = {};
+  for (const s of all) (chains[chainKey(s)] ||= []).push(s);
   const problems = [];
-  for (const s of all) {
-    if (s.prevHash !== prev) problems.push({ no: s.no, issue: 'A bill before this one is missing or changed' });
-    const h = await sha256(chainInput(s));
-    if (h !== s.hash) problems.push({ no: s.no, issue: 'This bill was edited after saving' });
-    prev = s.hash;
+  for (const list of Object.values(chains)) {
+    let prev = 'GENESIS';
+    for (const s of list) {
+      if (s.prevHash !== prev) problems.push({ no: s.no, issue: 'A bill before this one is missing or changed' });
+      const h = await sha256(chainInput(s));
+      if (h !== s.hash) problems.push({ no: s.no, issue: 'This bill was edited after saving' });
+      prev = s.hash;
+    }
   }
   return { count: all.length, problems };
 }
