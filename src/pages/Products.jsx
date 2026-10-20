@@ -15,15 +15,18 @@ import { findDuplicates, mergeProducts, suggestHsnGst } from '../lib/productTool
 import { useConfirm } from '../ui/kit.jsx';
 
 export default function Products() {
-  const { storeId, user } = useApp();
+  const { storeId, user, param } = useApp();
   const toast = useToast();
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('All');
   const [edit, setEdit] = useState(null);
   const [labels, setLabels] = useState(null);
-  const [quick, setQuick] = useState(false);
+  const [quick, setQuick] = useState(!!param?.quick);
   const [dups, setDups] = useState(null);
   const products = useLive(() => db.products.toArray(), [], []);
+  // Opened from the Smart & AI hub: run the duplicate finder once the list has loaded.
+  const askedDups = React.useRef(!!param?.dups);
+  React.useEffect(() => { if (askedDups.current && products.length) { askedDups.current = false; setDups(findDuplicates(products)); } }, [products]);
   const stock = useLive(() => stockMap(storeId), [storeId], {});
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
   const cats = useMemo(() => ['All', ...[...new Set(products.map(p => p.category))].sort()], [products]);

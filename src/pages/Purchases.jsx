@@ -12,7 +12,7 @@ import PurchaseBill from './PurchaseBill.jsx';
 export default function Purchases() {
   const { param } = useApp();
   const [tab, setTab] = useState(param?.tab || 'bills');
-  const [billDraft, setBillDraft] = useState(null);
+  const [billDraft, setBillDraft] = useState(param?.newBill ? {} : null);
   return (
     <div className="stack">
       <PageHead title="Purchases & suppliers" sub="Supplier bills, goods receipt with batch and expiry, orders, returns and GST credit check" actions={<Btn kind="primary" onClick={() => setBillDraft({})}>New purchase bill</Btn>} />

@@ -76,7 +76,7 @@ and every 8 seconds sends its new rows to one shared `records` table and pulls t
 2. **Free reading on the device** (offline OCR, `src/lib/billreader.js`; the desktop app runs it in `electron/main.cjs`).
    It is accepted only if the lines add up to the printed total and 90% of items are recognised.
 3. **AI** only if the free reading is not sure, through the store's own Supabase function
-   `supabase/functions/read-bill` (Grok by default; switch company with the `AI_PROVIDER` secret). Settings › Smart Scan
+   `supabase/functions/dataflow-ai` (Grok by default; switch company with the `AI_PROVIDER` secret). Settings › Smart Scan
    turns it off / on and shows how many bills were read free vs by AI this month.
 
 The person always checks the screen (green = sure, yellow = check, red = pick) before saving.

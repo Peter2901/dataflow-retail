@@ -19,6 +19,7 @@ import Reports from './pages/Reports.jsx';
 import Staff from './pages/Staff.jsx';
 import Assistant from './pages/Assistant.jsx';
 import Smart from './pages/Smart.jsx';
+import Hub from './pages/Hub.jsx';
 import { Connect, Downloading } from './ui/Connect.jsx';
 
 // The Android phone app is the full store app without the billing counter.
@@ -44,6 +45,7 @@ const ICON = {
   accounts: '<path d="M4 21V10M10 21V4M16 21v-8M22 21H2"/>',
   reports: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
   staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
+  hub: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/>',
   smart: '<path d="M12 2l2.4 5.6L20 8.3l-4.3 3.9L17 18l-5-3-5 3 1.3-5.8L4 8.3l5.6-.7Z"/>',
   assistant: '<path d="M12 3a7 7 0 0 1 7 7c0 3-2 4-2 6H7c0-2-2-3-2-6a7 7 0 0 1 7-7Z"/><path d="M9 21h6"/>',
   audit: '<path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6l7-3Z"/><path d="M9 12l2 2 4-4"/>',
@@ -54,36 +56,45 @@ const NavIcon = ({ id }) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICON[id] || '' }} />
 );
 
+// Simpler menu: everyday work first, every smart tool in one amber "Smart & AI" block,
+// and setup screens folded away. `hidden` pages open from the hub, not from the menu.
+const OFFICE = ['owner', 'manager', 'accountant'];
 export const NAV = [
   { group: 'Today', items: [
-    { id: 'dashboard', label: 'Dashboard', roles: ['owner', 'manager', 'accountant'], el: Dashboard },
-    { id: 'smart', label: 'Smart insights', roles: ['owner', 'manager', 'accountant'], el: Smart },
+    { id: 'dashboard', label: 'Home', roles: OFFICE, el: Dashboard },
     { id: 'pos', label: 'Billing counter', roles: ['owner', 'manager', 'cashier'], el: POS },
     { id: 'orders', label: 'WhatsApp orders', roles: ['owner', 'manager', 'cashier'], el: Orders, badge: 'orders' },
   ] },
   { group: 'Stock', items: [
-    { id: 'products', label: 'Products', roles: ['owner', 'manager', 'accountant'], el: Products },
+    { id: 'products', label: 'Products', roles: OFFICE, el: Products },
     { id: 'stock', label: 'Stock & batches', roles: ['owner', 'manager'], el: Stock },
     { id: 'expiry', label: 'Expiry control', roles: ['owner', 'manager'], el: Expiry, badge: 'expiry' },
     { id: 'offers', label: 'Offers & pricing', roles: ['owner', 'manager'], el: Offers },
-    { id: 'purchases', label: 'Purchases & suppliers', roles: ['owner', 'manager', 'accountant'], el: Purchases },
+    { id: 'purchases', label: 'Purchases & suppliers', roles: OFFICE, el: Purchases },
   ] },
   { group: 'Customers', items: [
     { id: 'customers', label: 'Customers & loyalty', roles: ['owner', 'manager', 'cashier'], el: Customers, badge: 'followups' },
-    { id: 'credit', label: 'Credit & dues', roles: ['owner', 'manager', 'accountant'], el: Credit },
+    { id: 'credit', label: 'Credit & dues', roles: OFFICE, el: Credit },
   ] },
   { group: 'Money & team', items: [
     { id: 'accounts', label: 'Accounts', roles: ['owner', 'accountant'], el: Accounts },
-    { id: 'reports', label: 'Reports', roles: ['owner', 'manager', 'accountant'], el: Reports },
+    { id: 'reports', label: 'Reports', roles: OFFICE, el: Reports },
     { id: 'staff', label: 'Staff & salary', roles: ['owner', 'manager'], el: Staff },
   ] },
-  { group: 'Control', items: [
-    { id: 'assistant', label: 'Ask your shop', roles: ['owner', 'manager', 'accountant'], el: Assistant },
-    { id: 'audit', label: 'Security & audit', roles: ['owner'], el: Audit },
+  { group: 'Smart & AI', ai: true, items: [
+    { id: 'hub', label: 'All smart tools', roles: OFFICE, el: Hub },
+    { id: 'assistant', label: 'Ask your shop', roles: OFFICE, el: Assistant },
+    { id: 'smart', label: 'Smart insights', roles: OFFICE, el: Smart, hidden: true },
+  ] },
+  { group: 'Setup', fold: true, items: [
     { id: 'setup', label: 'Import & setup', roles: ['owner', 'manager'], el: Setup },
+    { id: 'audit', label: 'Security & audit', roles: ['owner'], el: Audit },
     { id: 'settings', label: 'Settings', roles: ['owner'], el: Settings },
   ] },
 ];
+// Phone bottom tabs: first matches the role can open, AI hub always 5th.
+const TAB_CHOICES = ['dashboard', 'pos', 'orders', 'products', 'purchases', 'customers', 'credit', 'reports'];
+const TAB_LABEL = { dashboard: 'Home', pos: 'Billing', orders: 'Orders', products: 'Products', purchases: 'Purchases', customers: 'Customers', credit: 'Dues', reports: 'Reports', hub: 'Smart & AI' };
 const ROLE_LABEL = { owner: 'Owner', manager: 'Manager', cashier: 'Cashier', accountant: 'Accountant' };
 void ALL;
 
@@ -134,6 +145,7 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [param, setParam] = useState(null);
   const [menu, setMenu] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [sync, setSync] = useState(getStatus());
   const settings = useLive(() => getSettings(), [], null);
@@ -183,12 +195,14 @@ export default function App() {
   const current = items.find(i => i.id === page) || items[0];
   const Page = current.el;
   const go = (id, p = null) => { setPage(id); setParam(p); setMenu(false); };
-  const ctx = { user, settings, storeId: settings.currentStore || 'S1', go, param, online, logout: () => { audit('logout', {}, user); setUser(null); } };
+  const canOpen = id => items.some(i => i.id === id);
+  const tabs = [...TAB_CHOICES.filter(canOpen).slice(0, canOpen('hub') ? 4 : 5), ...(canOpen('hub') ? ['hub'] : [])];
+  const ctx = { canOpen, user, settings, storeId: settings.currentStore || 'S1', go, param, online, logout: () => { audit('logout', {}, user); setUser(null); } };
 
   return (
     <AppCtx.Provider value={ctx}>
       <ToastHost><ApproveHost><ConfirmHost>
-        <div className="shell">
+        <div className={`shell ${tabs.length > 1 && current.id !== 'pos' ? 'has-tabs' : ''}`}>
           <div className="topbar">
             <button className="icon-btn" onClick={() => setMenu(true)} aria-label="Open menu">☰</button>
             <b>{current.label}</b>
@@ -200,13 +214,16 @@ export default function App() {
             <div className="brand"><div className="brand-mark">DF</div><div><div className="brand-name">DataFlow Retail</div><div className="brand-store">{settings.storeName}</div></div></div>
             <nav className="nav">
               {NAV.map(g => {
-                const vis = g.items.filter(visible);
+                const vis = g.items.filter(i => visible(i) && !i.hidden);
                 if (!vis.length) return null;
+                const open = !g.fold || setupOpen || vis.some(i => i.id === current.id);
                 return (
-                  <div key={g.group}>
-                    <div className="nav-group">{g.group}</div>
-                    {vis.map(i => (
-                      <button key={i.id} className={`nav-item ${current.id === i.id ? 'on' : ''}`} onClick={() => go(i.id)}>
+                  <div key={g.group} className={g.ai ? 'nav-ai' : ''}>
+                    {g.fold
+                      ? <button className="nav-group nav-group-btn" onClick={() => setSetupOpen(o => !o)} aria-expanded={open}><span>{g.group}</span><span aria-hidden="true">{open ? '−' : '+'}</span></button>
+                      : <div className="nav-group">{g.ai ? '✦ ' : ''}{g.group}</div>}
+                    {open && vis.map(i => (
+                      <button key={i.id} className={`nav-item ${current.id === i.id || (i.id === 'hub' && current.id === 'smart') ? 'on' : ''}`} onClick={() => go(i.id)}>
                         <NavIcon id={i.id} /><span>{i.label}</span>{i.badge && counts?.[i.badge] ? <span className="nav-count">{counts[i.badge]}</span> : null}
                       </button>
                     ))}
@@ -229,6 +246,19 @@ export default function App() {
           <main className="main">
             <Suspense fallback={<p>Loading…</p>}><Page key={current.id} /></Suspense>
           </main>
+          {tabs.length > 1 && current.id !== 'pos' && (
+            <nav className="tabbar" aria-label="Main">
+              {tabs.map(id => {
+                const it = items.find(i => i.id === id);
+                const on = current.id === id || (id === 'hub' && (current.id === 'smart' || current.id === 'assistant'));
+                return (
+                  <button key={id} className={`${on ? 'on' : ''} ${id === 'hub' ? 'ai' : ''}`} onClick={() => go(id)} aria-current={on ? 'page' : undefined}>
+                    <NavIcon id={id} /><span>{TAB_LABEL[id]}</span>{it?.badge && counts?.[it.badge] ? <span className="nav-count">{counts[it.badge]}</span> : null}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
         </div>
       </ConfirmHost></ApproveHost></ToastHost>
     </AppCtx.Provider>

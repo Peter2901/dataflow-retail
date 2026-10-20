@@ -281,3 +281,33 @@ hr.sep { border: 0; border-top: 1px solid var(--line); margin: 8px 0; }
 .modal-back { grid-template-columns: minmax(0, 1fr); }
 .modal { min-width: 0; max-width: 100%; justify-self: center; }
 .modal-body { min-width: 0; }
+
+/* Smart & AI hub */
+.stack-s { display: flex; flex-direction: column; gap: 8px; }
+.hub-head { font-size: 13px; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); margin: 8px 0 0; }
+.hub-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.hub-card { display: flex; flex-direction: column; gap: 6px; text-align: left; background: var(--surface); color: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; font: inherit; }
+.hub-card:hover { border-color: var(--accent); }
+.hub-card.hub-ai { border-left: 4px solid var(--accent); }
+.hub-card.hub-free { border-left: 4px solid var(--ok); }
+
+/* Amber "Smart & AI" block in the menu */
+.nav-ai { margin: 10px 0 4px; padding: 2px 4px 6px; border-radius: 11px; background: var(--accent-soft); }
+.nav-ai .nav-group { color: var(--accent-ink); opacity: 1; font-weight: 700; }
+.nav-ai .nav-item { color: var(--accent-ink); }
+.nav-ai .nav-item svg { color: var(--accent); }
+.nav-ai .nav-item.on { background: var(--accent); }
+.nav-group-btn { display: flex; width: 100%; background: none; border: 0; cursor: pointer; font: inherit; justify-content: space-between; }
+
+/* Phone: 5 bottom tabs, 5th is Smart & AI (amber) */
+.tabbar { display: none; }
+@media (max-width: 860px) {
+  .tabbar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; background: var(--side-bg); border-top: 1px solid var(--side-line); padding: 4px max(6px, env(safe-area-inset-right, 0px)) max(6px, env(safe-area-inset-bottom, 0px)) max(6px, env(safe-area-inset-left, 0px)); }
+  .tabbar button { display: flex; flex-direction: column; align-items: center; gap: 2px; background: none; border: 0; color: var(--side-muted); font: inherit; font-size: 11px; padding: 6px 2px; border-radius: 10px; cursor: pointer; position: relative; }
+  .tabbar button svg { width: 21px; height: 21px; stroke-width: 1.9; }
+  .tabbar button.on { color: var(--side-ink); font-weight: 600; }
+  .tabbar button.ai { color: var(--accent); }
+  .tabbar button.ai.on { background: var(--accent-soft); color: var(--accent-ink); }
+  .tabbar .nav-count { position: absolute; top: 2px; right: 18%; margin: 0; }
+  .shell.has-tabs .main { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+}

@@ -11,7 +11,8 @@ import READ_BILL_CODE from '../../supabase/functions/dataflow-ai/index.ts?raw';
 import { aiUsageThisMonth } from '../lib/smartai.js';
 
 export default function Settings() {
-  const [tab, setTab] = useState('store');
+  const { param } = useApp();
+  const [tab, setTab] = useState(param?.tab || 'store');
   return (
     <div className="stack">
       <PageHead title="Settings" />
