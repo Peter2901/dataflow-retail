@@ -1121,5 +1121,12 @@ export default {
  "Phone numbers need 10 digits.": "फ़ोन नंबर 10 अंकों के होने चाहिए।",
  "Udhaar": "उधार",
  "Money": "पैसा",
- "Light or dark screen": "हल्की या गहरी स्क्रीन"
+ "Light or dark screen": "हल्की या गहरी स्क्रीन",
+ "Units (optional)": "इकाइयाँ (वैकल्पिक)",
+ "Buy in a big unit, sell in a small one. Leave empty if the product has one unit.": "बड़ी इकाई में खरीदें, छोटी में बेचें। एक ही इकाई हो तो खाली छोड़ें।",
+ "Unit 1 — biggest (e.g. Bag)": "इकाई 1 — सबसे बड़ी (जैसे बोरी)",
+ "Unit 2 — middle (e.g. Kg)": "इकाई 2 — बीच की (जैसे किलो)",
+ "Unit 3 — smallest (e.g. Gram)": "इकाई 3 — सबसे छोटी (जैसे ग्राम)",
+ "Stock, price and cost are kept per": "स्टॉक, भाव और लागत इसके हिसाब से रखे जाते हैं",
+ "Unit (set by Units below)": "इकाई (नीचे की इकाइयों से तय)"
 };

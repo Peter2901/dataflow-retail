@@ -365,3 +365,9 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .hub-icon-free { background: var(--ok-soft); color: var(--ok); }
 .hub-icon-ai { background: var(--accent-soft); color: var(--warn); }
 .hub-card { border-left-width: 1px !important; gap: 8px; }
+
+/* Up to 3 units on a product (Bag → Kg → Gram) */
+.units-box { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card-2, transparent); }
+.units-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 8px; }
+.qty-col { display: flex; flex-direction: column; gap: 4px; }
+.unit-pick { font: inherit; font-size: 12px; height: 28px; width: 100%; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }

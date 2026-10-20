@@ -139,6 +139,17 @@ GST and payroll rates are configurable; confirm them with your accountant.
 - Setup screens (Import & setup, Security & audit, Settings) are folded under **Setup** in the menu.
 - Code: `src/pages/Hub.jsx`, menu and bottom tabs in `src/App.jsx`.
 
+## Three units per product
+
+On a product, open **Units (optional)** and fill Unit 1 (biggest), Unit 2 and Unit 3 (smallest), for example
+Bag → Kg → Gram with `1 Bag = 30 Kg` and `1 Kg = 1000 Gram`. Pick which unit stock, MRP, price and purchase rate are
+kept in (Kg here). Everything inside the app stays in that one unit, so GST, stock and reports are unchanged.
+
+- **Counter:** a unit box on each bill line (Bag / Kg / Gram). The bill prints what was sold, e.g. `550 Gram`.
+- **Purchase bill:** "Buying in Bag / Kg / Gram" on the line; the rate and pieces-per-unit fill in by themselves.
+- **Stock and Products:** show `1 Bag 29 Kg 450 Gram` next to the plain number.
+- **Excel:** columns `UNIT_1`, `UNIT_2`, `UNIT_3`, `UNIT_1_TO_2`, `UNIT_2_TO_3`, `STOCK_UNIT` (template has an example).
+
 ## GST Saathi
 
 Money & team › **GST Saathi** walks through the month in five steps: due dates (monthly or quarterly/QRMP,

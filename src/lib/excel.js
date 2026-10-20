@@ -2,6 +2,7 @@
 import * as XLSX from 'xlsx';
 import { download, validEAN, todayISO, r2, localISO } from './util.js';
 import { GST_SLABS } from './billing.js';
+import { cleanUnits, unitErrors } from './units.js';
 
 // Column names from 'Sameer Excel Final 15OCT.xlsx', plus common alternatives.
 const MAP = {
@@ -15,6 +16,8 @@ const MAP = {
   cost: ['PURCHASE_RATE', 'PURCHASE RATE', 'COST', 'P.RATE'], mrp: ['MRP'], price: ['SELLING_PRICE', 'SELLING PRICE', 'SALE RATE', 'RATE', 'PRICE'],
   openingStock: ['OPENING_STOCK', 'OPENING STOCK', 'STOCK', 'QTY'], reorderMin: ['MIN_REORDER', 'REORDER', 'MIN STOCK'], reorderMax: ['MAX_STOCK', 'MAX STOCK'],
   rack: ['RACK_LOCATION', 'RACK', 'LOCATION'], batchTracked: ['BATCH_TRACKED'], vendorId: ['VENDOR_ID', 'SUPPLIER', 'VENDOR'],
+  unit1: ['UNIT_1', 'UNIT 1', 'UNIT1'], unit2: ['UNIT_2', 'UNIT 2', 'UNIT2'], unit3: ['UNIT_3', 'UNIT 3', 'UNIT3'],
+  c12: ['UNIT_1_TO_2', 'UNIT 1 TO 2', 'UNIT1_TO_UNIT2', 'CONV_1_TO_2'], c23: ['UNIT_2_TO_3', 'UNIT 2 TO 3', 'UNIT2_TO_UNIT3', 'CONV_2_TO_3'], stockUnit: ['STOCK_UNIT', 'STOCK UNIT', 'BASE_UNIT'],
   batchNo: ['BATCH_NO', 'BATCH'], expiry: ['EXPIRY_DATE', 'EXPIRY', 'EXP DATE', 'EXP'], plu: ['PLU'],
 };
 
@@ -47,7 +50,18 @@ export function mapProducts(raw) {
   }
   const mapped = raw.map((r, i) => {
     const g = k => (columns[k] ? r[columns[k]] : '');
-    const uom = norm(g('uom')) || 'PCS';
+    let uom = norm(g('uom')) || 'PCS';
+    // 3 units: UNIT_1 (biggest), UNIT_2, UNIT_3, UNIT_1_TO_2, UNIT_2_TO_3. STOCK_UNIT = 1, 2, 3 or the unit's name (default: smallest, or the one above Gram/ML).
+    let units;
+    const names = [g('unit1'), g('unit2'), g('unit3')].map(x => String(x ?? '').trim());
+    if (names[0] && names[1]) {
+      const su = String(g('stockUnit') ?? '').trim();
+      const byName = names.findIndex(n => n && n.toLowerCase() === su.toLowerCase());
+      const base = su === '' ? undefined : byName >= 0 ? byName : Number(su) >= 1 && Number(su) <= 3 ? Number(su) - 1 : undefined;
+      units = { names, c12: Number(g('c12')) || 0, c23: Number(g('c23')) || 0, base };
+      const cu = cleanUnits({ uom, units });
+      if (cu.units) { units = cu.units; uom = cu.uom; }
+    }
     return {
       row: i + 2, id: String(g('id') || '').trim(), barcode: String(g('barcode') || '').replace(/\.0$/, '').trim(), name: String(g('name') || '').trim(), localName: String(g('localName') || '').trim(),
       category: String(g('category') || 'General').trim(), subCategory: String(g('subCategory') || '').trim(), brand: String(g('brand') || '').trim(),
@@ -55,7 +69,7 @@ export function mapProducts(raw) {
       gst: g('gst') === '' ? null : Number(String(g('gst')).replace('%', '')), cost: Number(g('cost')) || 0, mrp: Number(g('mrp')) || 0, price: Number(g('price')) || 0,
       openingStock: Number(g('openingStock')) || 0, reorderMin: Number(g('reorderMin')) || 0, reorderMax: Number(g('reorderMax')) || 0,
       rack: String(g('rack') || '').trim(), vendorId: String(g('vendorId') || '').trim(), batchNo: String(g('batchNo') || '').trim(),
-      expiry: excelDate(g('expiry')), plu: String(g('plu') || '').trim(), loose: ['KG', 'GM'].includes(uom) && !g('barcode'),
+      ...(units ? { units } : {}), expiry: excelDate(g('expiry')), plu: String(g('plu') || '').trim(), loose: ['KG', 'GM'].includes(uom) && !g('barcode'),
     };
   });
   return { mapped, columns };
@@ -86,6 +100,7 @@ export function checkProducts(items, existing = []) {
     if (p.cost && margin > 60) warnings.push(`Very high margin ${margin.toFixed(0)}% — check purchase rate`);
     if (p.expiry && p.expiry < todayISO() && p.openingStock > 0) warnings.push(`Expired on ${p.expiry} — will be quarantined, not sold`);
     if (p.openingStock < 0) errors.push('Opening stock below zero');
+    unitErrors(p).forEach(e => errors.push(e));
     if (!p.rack) warnings.push('No rack location');
     return { ...p, margin: r2(margin), errors, warnings };
   });
@@ -110,6 +125,7 @@ export function exportProducts(products, stock = {}) {
   exportRows(`products-${todayISO()}.xlsx`, 'Products', products.map(p => ({
     SKU_CODE: p.id, BARCODE_EAN: p.barcode, ITEM_NAME: p.name, LOCAL_NAME: p.localName || '', CATEGORY: p.category, BRAND: p.brand, UOM: p.uom, CASE_PACK_QTY: p.casePack,
     HSN_CODE: p.hsn, GST_RATE_PCT: p.gst, PURCHASE_RATE: p.cost, MRP: p.mrp, SELLING_PRICE: p.price, STOCK: stock[p.id] || 0,
+    UNIT_1: p.units?.names[0] || '', UNIT_2: p.units?.names[1] || '', UNIT_3: p.units?.names[2] || '', UNIT_1_TO_2: p.units?.c12 || '', UNIT_2_TO_3: p.units?.c23 || '', STOCK_UNIT: p.units ? p.units.names[p.units.base] : '',
     MIN_REORDER: p.reorderMin, MAX_STOCK: p.reorderMax, RACK_LOCATION: p.rack, VENDOR_ID: p.vendorId, PLU: p.plu,
   })));
 }
@@ -119,6 +135,10 @@ export function templateFile() {
     SKU_CODE: 'SKU2001', BARCODE_EAN: '8901234567894', ITEM_NAME: 'Example Atta 5 kg', CATEGORY: 'Staples', SUB_CATEGORY: 'Atta', BRAND: 'Example', UOM: 'PCS', PACK_SIZE: 5,
     CASE_PACK_QTY: 4, HSN_CODE: '1101', GST_RATE_PCT: 5, PURCHASE_RATE: 228, MRP: 285, SELLING_PRICE: 259, OPENING_STOCK: 20, MIN_REORDER: 6, MAX_STOCK: 40,
     RACK_LOCATION: 'A1-R1-S1', BATCH_TRACKED: 'TRUE', VENDOR_ID: '', BATCH_NO: 'B123', EXPIRY_DATE: '2027-03-31',
+  }, {
+    // 3 units: 1 Bag = 30 Kg, 1 Kg = 1000 Gram. Price, rate and stock are per STOCK_UNIT (Kg here).
+    SKU_CODE: 'SKU2002', ITEM_NAME: 'Example Toor Dal (loose)', CATEGORY: 'Pulses', BRAND: 'Example', UOM: 'KG', UNIT_1: 'Bag', UNIT_2: 'Kg', UNIT_3: 'Gram', UNIT_1_TO_2: 30, UNIT_2_TO_3: 1000, STOCK_UNIT: 'Kg',
+    HSN_CODE: '0713', GST_RATE_PCT: 0, PURCHASE_RATE: 110, MRP: 150, SELLING_PRICE: 140, OPENING_STOCK: 60, MIN_REORDER: 30, MAX_STOCK: 150, RACK_LOCATION: 'A2-R1-S1',
   }]);
 }
 

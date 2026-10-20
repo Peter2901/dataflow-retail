@@ -1121,5 +1121,12 @@ export default {
  "Phone numbers need 10 digits.": "ଫୋନ୍ ନମ୍ବର 10 ଅଙ୍କର ହେବା ଦରକାର।",
  "Udhaar": "ଉଧାର",
  "Money": "ଟଙ୍କା",
- "Light or dark screen": "ହାଲୁକା କିମ୍ବା ଗାଢ ସ୍କ୍ରିନ୍"
+ "Light or dark screen": "ହାଲୁକା କିମ୍ବା ଗାଢ ସ୍କ୍ରିନ୍",
+ "Units (optional)": "ୟୁନିଟ୍ (ଇଚ୍ଛାଧୀନ)",
+ "Buy in a big unit, sell in a small one. Leave empty if the product has one unit.": "ବଡ଼ ୟୁନିଟ୍‌ରେ କିଣନ୍ତୁ, ଛୋଟରେ ବିକନ୍ତୁ। ଗୋଟିଏ ହିଁ ୟୁନିଟ୍ ହେଲେ ଖାଲି ଛାଡ଼ନ୍ତୁ।",
+ "Unit 1 — biggest (e.g. Bag)": "ୟୁନିଟ୍ 1 — ସବୁଠୁ ବଡ଼ (ଯେପରି ବସ୍ତା)",
+ "Unit 2 — middle (e.g. Kg)": "ୟୁନିଟ୍ 2 — ମଝିରେ (ଯେପରି କିଲୋ)",
+ "Unit 3 — smallest (e.g. Gram)": "ୟୁନିଟ୍ 3 — ସବୁଠୁ ଛୋଟ (ଯେପରି ଗ୍ରାମ)",
+ "Stock, price and cost are kept per": "ଷ୍ଟକ୍, ଦର ଓ ଲାଗତ ଏହି ହିସାବରେ ରହେ",
+ "Unit (set by Units below)": "ୟୁନିଟ୍ (ତଳ ୟୁନିଟ୍ ଅନୁସାରେ)"
 };

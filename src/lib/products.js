@@ -5,6 +5,7 @@ import { GST_SLABS } from './billing.js';
 import { addBatch } from './stock.js';
 import { audit } from './sales.js';
 import { newStoreBarcode } from './barcode.js';
+import { unitErrors, cleanUnits } from './units.js';
 
 export const BLANK_PRODUCT = { id: '', barcode: '', name: '', localName: '', category: '', brand: '', uom: 'PCS', hsn: '', gst: 5, mrp: '', price: '', cost: '', casePack: 1, rack: '', reorderMin: 5, reorderMax: 30, vendorId: '', loose: false, plu: '', active: true, batchTracked: true };
 
@@ -19,13 +20,14 @@ export function productErrors(p, products) {
   else if (p.barcode && !/^[A-Z0-9-]{3,20}$/i.test(p.barcode)) errs.push('Barcode can only have letters, numbers and dashes.');
   if (!GST_SLABS.includes(Number(p.gst))) errs.push(`GST must be ${GST_SLABS.join(', ')}%.`);
   if (p.barcode && products.some(x => x.barcode === p.barcode && x.id !== p.id)) errs.push('Another product already has this barcode.');
+  errs.push(...unitErrors(p));
   return [...new Set(errs)];
 }
 
 export function cleanProduct(p) {
   const rec = { ...p, name: String(p.name).trim(), gst: Number(p.gst), mrp: Number(p.mrp) || Number(p.price), price: Number(p.price), cost: Number(p.cost) || 0, casePack: Number(p.casePack) || 1, reorderMin: Number(p.reorderMin) || 0, reorderMax: Number(p.reorderMax) || 0 };
   if (!rec.id) rec.id = 'SKU' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 4).toUpperCase();
-  return rec;
+  return cleanUnits(rec);
 }
 
 // A store barcode that no product uses yet.

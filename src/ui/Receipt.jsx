@@ -1,12 +1,16 @@
 import React from 'react';
 import { inr, fmtDT, num, maskPhone } from '../lib/util.js';
 
+// Quantity as the cashier sold it, e.g. "500 Gram" (the bill keeps the base unit inside).
+const plainN = (v, d = 3) => String(Number((Number(v) || 0).toFixed(d)));
+const soldQty = l => `${plainN(l.qty / l.unitFactor)} ${l.unitName}`;
+
 export function receiptText(sale, s) {
   const L = [];
   L.push(`*${s.storeName}*`);
   L.push(`${sale.type === 'return' ? 'Credit note' : 'Bill'} ${sale.no} · ${fmtDT(sale.ts)}`);
   L.push('');
-  sale.lines.forEach(l => L.push(`${l.name}${l.localName && s.billNames !== 'none' ? ' / ' + l.localName : ''} × ${num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
+  sale.lines.forEach(l => L.push(`${l.name}${l.localName && s.billNames !== 'none' ? ' / ' + l.localName : ''} × ${l.unitName ? soldQty(l) : num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
   L.push('');
   if (sale.totals.lineDisc + sale.totals.billDisc > 0) L.push(`Discounts: −${inr(sale.totals.lineDisc + sale.totals.billDisc)}`);
   L.push(`*Total: ${inr(sale.totals.payable)}*`);
@@ -46,7 +50,7 @@ export default function Receipt({ sale, settings: s }) {
         {sale.lines.map((l, i) => (
           <React.Fragment key={i}>
             <tr><td colSpan="3">{l.name}{l.localName && s.billNames !== 'none' ? <div className="loc">{l.localName}</div> : null}</td></tr>
-            <tr><td>{num(l.qty, l.uom === 'KG' ? 3 : 0)} × {l.unitPrice}</td><td className="r">MRP {l.mrp}</td><td className="r">{l.total.toFixed(2)}</td></tr>
+            <tr><td>{l.unitName ? `${soldQty(l)} × ${plainN(l.unitPrice * l.unitFactor, 2)}` : <>{num(l.qty, l.uom === 'KG' ? 3 : 0)} × {l.unitPrice}</>}</td><td className="r">MRP {l.mrp}</td><td className="r">{l.total.toFixed(2)}</td></tr>
             <tr><td colSpan="3" style={{ fontSize: 10 }}>HSN {l.hsn} · GST {l.gst}%{l.lineDisc ? ` · disc ${l.lineDisc.toFixed(2)}` : ''}</td></tr>
           </React.Fragment>
         ))}

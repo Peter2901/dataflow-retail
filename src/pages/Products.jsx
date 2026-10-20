@@ -13,6 +13,7 @@ import Stickers from '../ui/Stickers.jsx';
 import { smartSearch } from '../lib/search.js';
 import { findDuplicates, mergeProducts, suggestHsnGst } from '../lib/productTools.js';
 import { useConfirm } from '../ui/kit.jsx';
+import { unitList, unitErrors, breakdown, plain, uomCode } from '../lib/units.js';
 
 export default function Products() {
   const { storeId, user, param } = useApp();
@@ -67,7 +68,7 @@ export default function Products() {
           { label: 'MRP', num: true, render: p => inr(p.mrp) },
           { label: 'Price', num: true, render: p => inr(p.price) },
           { label: 'Margin', num: true, render: p => { if (!(p.cost > 0)) return <span className="muted">—</span>; const m = p.price ? ((p.price / (1 + p.gst / 100) - p.cost) / (p.price / (1 + p.gst / 100))) * 100 : 0; return <span style={{ color: m < 8 ? 'var(--bad)' : undefined }}>{num(m, 1)}%</span>; } },
-          { label: 'Stock', num: true, render: p => { const s = stock[p.id] || 0; return <span style={{ color: s <= p.reorderMin ? 'var(--bad)' : undefined }}>{num(s, p.uom === 'KG' ? 2 : 0)} {p.uom}</span>; } },
+          { label: 'Stock', num: true, render: p => { const s = stock[p.id] || 0; const bd = unitList(p).length ? breakdown(p, s) : ''; return <span style={{ color: s <= p.reorderMin ? 'var(--bad)' : undefined }}>{bd ? <>{bd}<div className="small muted">{plain(s)} {p.uom}</div></> : <>{num(s, p.uom === 'KG' ? 2 : 0)} {p.uom}</>}</span>; } },
           { label: '', render: p => p.active === false ? <Badge>Hidden</Badge> : p.sample ? <Badge tone="info">Sample</Badge> : null },
         ]} />
       </div>
@@ -96,7 +97,7 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <Field label="Barcode (EAN-13)"><div className="row gap-s"><input className="input" value={p.barcode} onChange={f('barcode')} id="p-bar" /><Btn size="sm" type="button" onClick={newEAN} title="Make a store barcode for items without one">New</Btn></div>
           {p.barcode && /^\d{8}$|^\d{12,14}$/.test(p.barcode) && <span className="field-hint" style={{ color: validEAN(p.barcode) ? 'var(--ok)' : 'var(--bad)' }}>{validEAN(p.barcode) ? (isStoreBarcode(p.barcode) ? 'Store barcode — print stickers for it' : 'Check digit OK') : 'Check digit wrong'}</span>}</Field>
         <Input label="Category" value={p.category} onChange={f('category')} id="p-cat" />
-        <Select label="Unit" value={p.uom} onChange={f('uom')} options={['PCS', 'KG', 'GM', 'LTR', 'ML', 'PACK']} id="p-uom" />
+        <Select label={unitList(p).length ? 'Unit (set by Units below)' : 'Unit'} value={unitList(p).length ? uomCode(unitList(p).find(x => x.base).name) : p.uom} onChange={f('uom')} disabled={unitList(p).length > 0} options={[...new Set(['PCS', 'KG', 'GM', 'LTR', 'ML', 'PACK', unitList(p).length ? uomCode(unitList(p).find(x => x.base).name) : p.uom])]} id="p-uom" />
         <Field label="HSN code" hint={hint ? `Suggested ${hint.hsn}${hint.gst != null ? ` · GST ${hint.gst}%` : ''} — ${hint.source}` : ''}>
           <div className="row gap-s"><input className="input" value={p.hsn} onChange={f('hsn')} id="p-hsn" /><Btn size="sm" type="button" onClick={async () => { const h = await suggestHsnGst(p.name, allProducts.filter(x => x.id !== p.id), { useAI: true }).catch(() => null); setHint(h); if (h) setP(x => ({ ...x, hsn: h.hsn, ...(h.gst != null ? { gst: h.gst } : {}) })); }}>Suggest</Btn></div>
         </Field>
@@ -113,7 +114,41 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <label className="check"><input type="checkbox" checked={!!p.loose} onChange={f('loose')} /> Sold loose by weight</label>
         <label className="check"><input type="checkbox" checked={p.active !== false} onChange={f('active')} /> Show at the counter</label>
       </div>
+      <UnitsEditor p={p} setP={setP} />
     </Modal>
+  );
+}
+
+// Up to 3 units: biggest → smallest, e.g. Bag → Kg → Gram.
+function UnitsEditor({ p, setP }) {
+  const u = { names: ['', '', ''], c12: '', c23: '', ...(p.units || {}) };
+  const set = patch => setP(x => ({ ...x, units: { names: ['', '', ''], c12: '', c23: '', ...(x.units || {}), ...patch } }));
+  const setName = i => e => set({ names: u.names.map((n, j) => (j === i ? e.target.value : n)) });
+  const names = u.names.map(n => String(n).trim());
+  const k = names[2] ? 3 : names[1] ? 2 : 0;
+  const L = unitList(p);
+  const baseNow = L.find(x => x.base);
+  const price = Number(p.price) || 0, cost = Number(p.cost) || 0;
+  const errs = unitErrors(p);
+  return (
+    <div className="units-box">
+      <div className="units-head"><b>Units (optional)</b><span className="small muted">Buy in a big unit, sell in a small one. Leave empty if the product has one unit.</span></div>
+      <div className="grid g3">
+        <Input label="Unit 1 — biggest (e.g. Bag)" value={u.names[0]} onChange={setName(0)} id="p-u1" />
+        <Input label="Unit 2 — middle (e.g. Kg)" value={u.names[1]} onChange={setName(1)} id="p-u2" />
+        <Input label="Unit 3 — smallest (e.g. Gram)" value={u.names[2]} onChange={setName(2)} id="p-u3" />
+        {names[0] && names[1] && <Input label={`1 ${names[0]} = how many ${names[1]}?`} type="number" step="any" value={u.c12} onChange={e => set({ c12: e.target.value })} id="p-c12" />}
+        {names[2] && <Input label={`1 ${names[1]} = how many ${names[2]}?`} type="number" step="any" value={u.c23} onChange={e => set({ c23: e.target.value })} id="p-c23" />}
+        {k > 0 && <Select label="Stock, price and cost are kept per" value={baseNow ? baseNow.i : (u.base ?? '')} onChange={e => set({ base: Number(e.target.value) })}
+          options={names.slice(0, k).map((n, i) => ({ value: i, label: n || `Unit ${i + 1}` }))} id="p-ubase" />}
+      </div>
+      {baseNow && <div className="small muted" style={{ marginTop: 6 }}>
+        MRP, selling price and purchase rate above are <b>per {baseNow.name}</b>.
+        {price > 0 && <> Selling: {L.map(x => `₹${plain(price * x.factor, 2)} per ${x.name}`).join(' · ')}.</>}
+        {cost > 0 && <> Buying: {L.map(x => `₹${plain(cost * x.factor, 2)} per ${x.name}`).join(' · ')}.</>}
+      </div>}
+      {errs.map(e => <div key={e} className="err small" style={{ marginTop: 4 }}>{e}</div>)}
+    </div>
   );
 }
 

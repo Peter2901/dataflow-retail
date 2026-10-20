@@ -15,7 +15,7 @@ export function lineCalc(l) {
   const gross = r2(qty * rate);
   const taxable = r2(gross * (1 - disc / 100));
   const tax = r2((taxable * gst) / 100);
-  const pieces = r2((qty + free) * pack);
+  const pieces = Math.round((qty + free) * pack * 1000) / 1000;
   const landing = pieces > 0 ? taxable / pieces : 0;            // per piece, before GST
   return { qty, free, pack, rate, disc, gst, gross, taxable, tax, total: r2(taxable + tax), pieces, landing, landingInc: landing * (1 + gst / 100) };
 }

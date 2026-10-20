@@ -12,6 +12,7 @@ import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum 
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
+import { unitList, toBase, fromBase, plain } from '../lib/units.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
 // Payment tiles on the counter: the icon says what it is, the key badge says how to press it.
@@ -21,6 +22,16 @@ const PAY_TILES = [
   { mode: 'card', label: 'Card', key: 'F11', icon: '<rect x="2.5" y="5.5" width="17" height="13" rx="2.2"/><rect x="5.5" y="9.5" width="3.6" height="2.8" rx=".6"/><path d="M5.5 15.5h5M13 15.5h3"/><path d="M20.3 9.2a3.6 3.6 0 0 1 0 5.6M22.3 7.4a6.3 6.3 0 0 1 0 9.2"/>' },
   { mode: 'credit', label: 'Udhaar', key: 'F12', icon: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M21.38 5.63a2.12 2.12 0 0 0-3-3l-5.01 5.01a2 2 0 0 0-.51.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.51Z"/>' },
 ];
+
+// Units: the cart keeps every quantity in the product's base unit; `unit` is only how the cashier sees it.
+function unitInfo(p, c) {
+  const L = unitList(p);
+  if (!L.length) return {};
+  const cur = L[c.unit] || L.find(x => x.base);
+  return { units: L, unitIdx: cur.i, unitName: cur.name, unitFactor: cur.factor };
+}
+const r2e = v => Math.round(v * 1e4) / 1e4;
+const stepFor = (l, f) => (f <= 0.01 ? 50 : l.uom === 'KG' && f === 1 ? 0.25 : 1);
 
 export default function POS() {
   const { user, settings, storeId, param, go } = useApp();
@@ -85,7 +96,7 @@ export default function POS() {
       const unitPrice = c.price ?? p.price;
       const a = allocs[c.key] || { alloc: [], blocked: [] };
       const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null };
+      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...unitInfo(p, c) };
     }).filter(Boolean);
     const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
     const billLines = lines.map(l => ({
@@ -152,6 +163,7 @@ export default function POS() {
 
   const setQty = (key, qty) => setCart(c => c.map(x => x.key === key ? { ...x, qty: Math.max(0, qty) } : x).filter(x => x.qty > 0));
   const removeLine = key => setCart(c => c.filter(x => x.key !== key));
+  const setUnit = (key, i) => setCart(c => c.map(x => x.key === key ? { ...x, unit: i } : x));
 
   const overridePrice = async line => {
     const v = await new Promise(res => setModal({ type: 'price', line, res }));
@@ -255,7 +267,7 @@ export default function POS() {
                   <div className="grow">
                     <div className="name">{l.name}</div>
                     <div className="small muted">
-                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{inr(l.unitPrice)}{l.uom === 'KG' ? '/kg' : ''}</button>
+                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{inr(l.unitPrice)}{l.units ? `/${l.units.find(x => x.base).name}` : l.uom === 'KG' ? '/kg' : ''}</button>
                       {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%
                       {a.alloc.filter(x => x.batchNo !== 'NO-STOCK').map(x => <span key={x.batchId}> · {x.batchNo}{x.expiry ? ` (exp ${x.expiry})` : ''}</span>)}
                     </div>
@@ -263,10 +275,13 @@ export default function POS() {
                     {a.shortfall > 0 && <Badge tone="warn">System stock short by {num(a.shortfall, 2)} — sale allowed, manager alerted</Badge>}
                     {!a.alloc.length && a.blocked.length > 0 && <Badge tone="bad">Expired stock — cannot be sold</Badge>}
                   </div>
+                  <div className="qty-col">
+                  {l.units && <select className="unit-pick" value={l.unitIdx} onChange={e => setUnit(l.key, Number(e.target.value))} aria-label="Unit">{l.units.map(u => <option key={u.i} value={u.i}>{u.name}</option>)}</select>}
                   <div className="qty">
-                    <button onClick={() => setQty(l.key, r2(l.qty - (l.uom === 'KG' ? 0.25 : 1)))} aria-label="Less">−</button>
-                    <input value={l.qty} inputMode="decimal" onChange={e => setQty(l.key, Number(e.target.value) || 0)} aria-label="Quantity" />
-                    <button onClick={() => setQty(l.key, r2(l.qty + (l.uom === 'KG' ? 0.25 : 1)))} aria-label="More">+</button>
+                    <button onClick={() => setQty(l.key, r2e(l.qty - (l.unitFactor ? stepFor(l, l.unitFactor) * l.unitFactor : (l.uom === 'KG' ? 0.25 : 1))))} aria-label="Less">−</button>
+                    <input value={l.unitFactor ? plain(l.qty / l.unitFactor) : l.qty} inputMode="decimal" onChange={e => setQty(l.key, l.unitFactor ? r2e((Number(e.target.value) || 0) * l.unitFactor) : Number(e.target.value) || 0)} aria-label="Quantity" />
+                    <button onClick={() => setQty(l.key, r2e(l.qty + (l.unitFactor ? stepFor(l, l.unitFactor) * l.unitFactor : (l.uom === 'KG' ? 0.25 : 1))))} aria-label="More">+</button>
+                  </div>
                   </div>
                   <div className="num line-total">{inr(bl?.total || 0)}{l.lineDisc > 0 && <div className="small" style={{ color: 'var(--ok)' }}>−{inr(l.lineDisc)}</div>}</div>
                   <button className="icon-btn" onClick={() => removeLine(l.key)} aria-label={`Remove ${l.name}`}>✕</button>
@@ -376,14 +391,22 @@ function OpenShift({ storeId }) {
 }
 
 function WeightModal({ product, onClose, onAdd }) {
+  const L = unitList(product);
+  const baseI = L.findIndex(x => x.base);
+  const [ui, setUi] = useState(baseI < 0 ? 0 : baseI);
   const [kg, setKg] = useState('');
   const [err, setErr] = useState('');
-  const read = async () => { try { setErr(''); setKg(String(await readScaleWeight())); } catch (e) { setErr(e.message); } };
+  const cur = L[ui];
+  const name = cur ? cur.name : 'kg';
+  const toBaseQty = v => (cur ? toBase(product, ui, v) : r2(Number(v)));
+  const read = async () => { try { setErr(''); const w = await readScaleWeight(); setKg(String(cur ? fromBase(product, ui, w) : w)); } catch (e) { setErr(e.message); } };
+  const baseQty = toBaseQty(kg);
   return (
-    <Modal title={`Weigh: ${product.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!(Number(kg) > 0)} onClick={() => onAdd(r2(Number(kg)))}>Add {kg ? `${kg} kg` : ''}</Btn></>}>
-      <form className="stack" onSubmit={e => { e.preventDefault(); Number(kg) > 0 && onAdd(r2(Number(kg))); }}>
-        <Input label="Weight in kg" type="number" step="0.005" autoFocus value={kg} onChange={e => setKg(e.target.value)} id="kg" />
-        <p className="small muted">{inr(product.price)}/kg · {kg ? `amount ${inr(Number(kg) * product.price)}` : ''}</p>
+    <Modal title={`Weigh: ${product.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!(Number(kg) > 0)} onClick={() => onAdd(baseQty)}>Add {kg ? `${kg} ${name}` : ''}</Btn></>}>
+      <form className="stack" onSubmit={e => { e.preventDefault(); Number(kg) > 0 && onAdd(baseQty); }}>
+        {L.length > 1 && <Select label="Unit" value={ui} onChange={e => setUi(Number(e.target.value))} options={L.map(u => ({ value: u.i, label: u.name }))} id="wunit" />}
+        <Input label={`Weight in ${name}`} type="number" step="any" autoFocus value={kg} onChange={e => setKg(e.target.value)} id="kg" />
+        <p className="small muted">{inr(product.price * (cur ? cur.factor : 1))}/{name} · {kg ? `amount ${inr(baseQty * product.price)}` : ''}</p>
         {serialSupported() && <Btn type="button" onClick={read}>Read from scale</Btn>}
         {err && <p className="err small">{err}</p>}
       </form>

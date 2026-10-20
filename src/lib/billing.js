@@ -33,6 +33,7 @@ export function computeBill(lines, billDiscounts = [], interState = false) {
     return {
       productId: l.productId, name: l.name, hsn: l.hsn, gst: rate, qty: Number(l.qty), uom: l.uom,
       mrp: l.mrp, unitPrice: l.unitPrice, cost: l.cost || 0, batches: l.batches || [], offerNote: l.offerNote || '',
+      ...(l.unitName ? { unitName: l.unitName, unitFactor: l.unitFactor } : {}),
       gross: fromPaise(l._gross), lineDisc: fromPaise(l._lineDisc), billDisc: fromPaise(l._billDisc),
       taxable: fromPaise(taxable), cgst: fromPaise(cgst), sgst: fromPaise(sgst), igst: fromPaise(igst),
       total: fromPaise(net),
