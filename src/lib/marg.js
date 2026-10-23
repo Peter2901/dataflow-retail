@@ -241,5 +241,20 @@ export function mapMargItems(raw, { today = new Date() } = {}) {
   // Same name twice in the file.
   const seen = {};
   mapped.forEach(p => { const k = up(p.name); if (seen[k]) p.warnings.push(`Same name as row ${seen[k]}`); else seen[k] = p.row; });
-  return { mapped, columns };
+  const gstIncluded = ratesIncludeGst(mapped);
+  if (gstIncluded) mapped.forEach(p => { if (p.gst > 0 && p.cost > 0) p.cost = r2(p.cost / (1 + p.gst / 100)); });
+  return { mapped, columns, gstIncluded };
+}
+
+/**
+ * Billing software often keeps purchase rates WITH GST. The app keeps them before GST. Decide from the
+ * sheet itself: if many taxed items look like a loss when the rate is read as before-GST, but almost none
+ * do when GST is taken out, the rates include GST (Sameer's sheet: 194 "losses" → 0, usual margin ~12%).
+ */
+export function ratesIncludeGst(items) {
+  const taxed = items.filter(p => p.gst > 0 && p.cost > 0 && p.price > 0);
+  if (taxed.length < 20) return false;
+  const lossAsIs = taxed.filter(p => p.cost >= p.price / (1 + p.gst / 100)).length;
+  const lossIfIncl = taxed.filter(p => p.cost / (1 + p.gst / 100) >= p.price / (1 + p.gst / 100)).length;
+  return lossAsIs >= taxed.length * 0.05 && lossIfIncl <= taxed.length * 0.01;
 }

@@ -48,7 +48,10 @@ export async function readSheet(file) {
 
 /** Any product sheet → mapped rows. Billing-software item masters (Product*, Unit-1*, Conversion…) are read by marg.js. */
 export function mapAnyProducts(raw) {
-  if (raw.length && isMargSheet(Object.keys(raw[0]))) return { ...mapMargItems(raw), layout: 'billing software item master' };
+  if (raw.length && isMargSheet(Object.keys(raw[0]))) {
+    const m = mapMargItems(raw);
+    return { ...m, layout: 'billing software item master' + (m.gstIncluded ? ' (its purchase rates included GST — GST taken out, as the app keeps rates before GST)' : '') };
+  }
   return { ...mapProducts(raw), layout: 'product list' };
 }
 

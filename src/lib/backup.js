@@ -109,11 +109,12 @@ async function eachLine(blob, kind, fn) {
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    buf += value;
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line) await fn(JSON.parse(line)); }
+    // Split each piece once (not line by line with slices — that copies the rest of the text every line).
+    const parts = (buf + value).split('\n');
+    buf = parts.pop();
+    for (const line of parts) if (line) { const r = fn(JSON.parse(line)); if (r && r.then) await r; }
   }
-  if (buf.trim()) await fn(JSON.parse(buf));
+  if (buf.trim()) { const r = fn(JSON.parse(buf)); if (r && r.then) await r; }
 }
 
 /** Check a backup without changing anything. Returns { header, counts, rows }. */
