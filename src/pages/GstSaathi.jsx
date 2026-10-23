@@ -3,7 +3,7 @@
 // AI never files a return and never sets a GST rate. Rule-book changes need the owner's OK.
 import React, { useEffect, useMemo, useState } from 'react';
 import { db, setSetting } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Card, Btn, Badge, Table, Stat, Select, Input } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Card, Btn, Badge, Table, Stat, Select, Input } from '../ui/kit.jsx';
 import { inr, download, localISO } from '../lib/util.js';
 import { exportRows, readAny } from '../lib/excel.js';
 import { audit } from '../lib/sales.js';
@@ -25,10 +25,11 @@ export default function GstSaathi() {
   const per = periodFor(key, qrmp);
   const range = useMemo(() => ({ from: monthRange(per.keys[0]).from, to: monthRange(per.keys[per.keys.length - 1]).to }), [key, qrmp]);
 
-  const sales = useLive(() => db.sales.where('storeId').equals(storeId).toArray(), [storeId], null);
+  // Read only the return period (by date), not every bill and every books entry ever made.
+  const sales = useSlowLive(async () => (await db.sales.where('ts').between(range.from, range.to, true, true).toArray()).filter(s => s.storeId === storeId), [storeId, range.from, range.to], null, 30000);
   const purchases = useLive(() => db.purchases.toArray(), [], []);
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
-  const journal = useLive(() => db.journal.toArray(), [], []);
+  const journal = useSlowLive(() => db.journal.where('ts').between(range.from, range.to, true, true).toArray(), [range.from, range.to], [], 30000);
   const products = useLive(() => db.products.toArray(), [], []);
 
   const inP = useMemo(() => (sales || []).filter(s => s.ts >= range.from && s.ts <= range.to), [sales, range]);

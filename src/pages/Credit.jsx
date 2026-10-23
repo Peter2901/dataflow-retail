@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Stat, Card, Badge } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Stat, Card, Badge } from '../ui/kit.jsx';
 import { inr, r2, sum, waLink, upiLink, fmtDate, daysBetween } from '../lib/util.js';
 import { customerAgeing, partyBalances } from '../lib/parties.js';
 import { postReceipt } from '../lib/accounts.js';
@@ -9,7 +9,7 @@ import { audit } from '../lib/sales.js';
 export default function Credit() {
   const { settings, user, go } = useApp();
   const toast = useToast();
-  const ageing = useLive(() => customerAgeing(), [], {});
+  const ageing = useSlowLive(() => customerAgeing(), [], {}, 20000);
   const customers = useLive(() => db.customers.toArray(), [], []);
   const supp = useLive(() => partyBalances('supp'), [], {});
   const purchases = useLive(() => db.purchases.toArray(), [], []);

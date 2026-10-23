@@ -76,10 +76,8 @@ export async function allocateFEFO(productId, qty, storeId, cfg = DEFAULT_EXPIRY
 }
 
 export async function moveStock({ batchId, productId, storeId, qty, type, ref, note }) {
-  if (batchId) {
-    const b = await db.batches.get(batchId);
-    if (b) await db.batches.update(batchId, { qty: Math.round((b.qty + qty) * 1000) / 1000 });
-  }
+  // Read-and-change in one step: a sync landing on the same batch at the same moment can't undo it.
+  if (batchId) await db.batches.where('id').equals(batchId).modify(b => { b.qty = Math.round((b.qty + qty) * 1000) / 1000; });
   await db.stockMoves.add({ ts: Date.now(), productId, batchId, storeId, qty, type, ref, note: note || '' });
 }
 

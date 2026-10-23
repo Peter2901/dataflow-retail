@@ -50,6 +50,30 @@ db.version(3).stores({
   itemAliases: 'id, supplierId, productId, updatedAt',
 });
 
+// v4 (stress-tested for busy stores): every synced table gets an updatedAt index, so the
+// background sync reads only what changed instead of whole tables; journal entries are indexed
+// by account (*accs), so one customer's udhaar is read without loading all the books.
+db.version(4).stores({
+  users: 'id, role, updatedAt',
+  shifts: 'id, userId, storeId, openedAt, closedAt, updatedAt',
+  audit: 'id, ts, action, updatedAt',
+  debitNotes: 'id, no, supplierId, date, updatedAt',
+  purchaseOrders: 'id, no, supplierId, date, status, updatedAt',
+  followups: 'id, customerId, due, done, updatedAt',
+  employees: 'id, name, updatedAt',
+  attendance: 'id, empId, date, updatedAt',
+  payroll: 'id, empId, month, updatedAt',
+  stores: 'id, updatedAt',
+  accounts: 'id, group, name, updatedAt',
+  bankLines: 'id, date, matched, updatedAt',
+  journal: 'id, ts, ref, type, updatedAt, *accs',
+}).upgrade(tx => tx.table('journal').toCollection().modify(j => { j.accs = journalAccs(j); }));
+
+// v5: per-day sales summaries for the smart features (this device only, rebuilt when needed).
+db.version(5).stores({ daySums: 'id, storeId, day' });
+
+export function journalAccs(j) { return [...new Set((j.lines || []).map(l => l.acc).filter(Boolean))]; }
+
 // Tables that sync to the cloud. Append-only logs and shared master data only;
 // local-only things (settings, users, shifts, held, bank lines) stay on the device.
 // Since v1.1 the phone app is a full copy of the store (everything except billing), so staff,
@@ -77,6 +101,7 @@ for (const t of SYNC_TABLES) {
   db[t].hook('creating', (primKey, obj) => {
     if (!obj.updatedAt) obj.updatedAt = Date.now();
     if (t === 'stockMoves' && !obj.sid) obj.sid = COUNTER + ':' + uid();
+    if (t === 'journal') obj.accs = journalAccs(obj);
   });
   db[t].hook('updating', (mods) => {
     if ('_seq' in mods || '_mv' in mods) return;          // the sync itself is writing

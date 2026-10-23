@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, createContext, useContext, useCallback } from 'react';
-import { liveQuery } from 'dexie';
+import Dexie, { liveQuery } from 'dexie';
 import { db } from '../db.js';
 import { hashPin } from '../lib/util.js';
 
@@ -9,6 +9,33 @@ export function useLive(fn, deps = [], initial = undefined) {
   useEffect(() => {
     const sub = liveQuery(fn).subscribe({ next: setV, error: e => console.error(e) });
     return () => sub.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return v;
+}
+
+/**
+ * For heavy summaries (weeks of bills): runs once, then again at most every `every` ms while data keeps
+ * changing. On a busy store, useLive would redo the whole sum after every single bill from every counter.
+ */
+export function useSlowLive(fn, deps = [], initial = undefined, every = 30000) {
+  const [v, setV] = useState(initial);
+  useEffect(() => {
+    let alive = true, running = false, dirty = false, last = 0, timer = null;
+    const schedule = () => {
+      if (timer || !alive) return;
+      timer = setTimeout(() => { timer = null; run(); }, Math.max(0, every - (Date.now() - last)));
+    };
+    const run = async () => {
+      if (running) { dirty = true; return; }
+      running = true; dirty = false;
+      try { const r = await fn(); if (alive) setV(r); } catch (e) { console.error(e); }
+      finally { running = false; last = Date.now(); if (dirty) schedule(); }
+    };
+    const onChange = () => { dirty = true; schedule(); };
+    run();
+    Dexie.on('storagemutated', onChange);
+    return () => { alive = false; clearTimeout(timer); Dexie.on('storagemutated').unsubscribe(onChange); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   return v;
@@ -84,15 +111,18 @@ export function Tabs({ tabs, value, onChange }) {
   return <div className="tabs" role="tablist">{tabs.map(t => <button key={t.value} role="tab" aria-selected={value === t.value} className={`tab ${value === t.value ? 'on' : ''}`} onClick={() => onChange(t.value)}>{t.label}</button>)}</div>;
 }
 
-export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField = 'id', foot }) {
+// Big lists (20,000 customers, years of bills) draw 200 rows at a time; search narrows them anyway.
+export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField = 'id', foot, page = 200 }) {
+  const [shown, setShown] = useState(page);
   if (!rows) return <div className="muted pad">Loading…</div>;
   if (!rows.length) return <div className="empty">{empty}</div>;
+  const view = rows.length > shown ? rows.slice(0, shown) : rows;
   return (
     <div className="table-wrap">
       <table className="tbl">
         <thead><tr>{cols.map(c => <th key={c.key || c.label} className={c.num ? 'num' : ''}>{c.label}</th>)}</tr></thead>
         <tbody>
-          {rows.map((r, i) => (
+          {view.map((r, i) => (
             <tr key={r[keyField] ?? i} onClick={onRow ? () => onRow(r) : undefined} className={onRow ? 'clickable' : ''}>
               {cols.map(c => <td key={c.key || c.label} className={c.num ? 'num' : ''}>{c.render ? c.render(r) : r[c.key]}</td>)}
             </tr>
@@ -100,6 +130,7 @@ export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField
         </tbody>
         {foot && <tfoot><tr>{cols.map((c, i) => <td key={i} className={c.num ? 'num' : ''}>{foot[c.key] ?? ''}</td>)}</tr></tfoot>}
       </table>
+      {rows.length > shown && <div className="row gap-s pad" style={{ justifyContent: 'center' }}><span className="small muted">Showing {shown} of {rows.length}</span><button className="btn btn-sm" onClick={() => setShown(n => n + page * 5)}>Show more</button></div>}
     </div>
   );
 }

@@ -10,7 +10,8 @@ export const GST_SLABS = [0, 5, 18, 40];
  */
 export function computeBill(lines, billDiscounts = [], interState = false) {
   const work = lines.map(l => {
-    const gross = Math.round(toPaise(l.unitPrice) * Number(l.qty));
+    // Sold by the pack: charge the pack price exactly (qty stays in pieces for stock and GST).
+    const gross = l.sell ? Math.round(toPaise(l.sell.price) * Number(l.sell.count)) : Math.round(toPaise(l.unitPrice) * Number(l.qty));
     const disc = Math.min(gross, toPaise(l.lineDisc || 0));
     return { ...l, _gross: gross, _afterLine: gross - disc, _lineDisc: disc };
   });
@@ -33,6 +34,7 @@ export function computeBill(lines, billDiscounts = [], interState = false) {
     return {
       productId: l.productId, name: l.name, hsn: l.hsn, gst: rate, qty: Number(l.qty), uom: l.uom,
       mrp: l.mrp, unitPrice: l.unitPrice, cost: l.cost || 0, batches: l.batches || [], offerNote: l.offerNote || '',
+      ...(l.sell ? { sell: l.sell } : {}), ...(l.level && l.level !== 'retail' ? { level: l.level } : {}),
       gross: fromPaise(l._gross), lineDisc: fromPaise(l._lineDisc), billDisc: fromPaise(l._billDisc),
       taxable: fromPaise(taxable), cgst: fromPaise(cgst), sgst: fromPaise(sgst), igst: fromPaise(igst),
       total: fromPaise(net),

@@ -65,7 +65,7 @@ export default function Products() {
           { label: 'Rack', key: 'rack' },
           { label: 'GST', num: true, render: p => p.gst + '%' },
           { label: 'MRP', num: true, render: p => inr(p.mrp) },
-          { label: 'Price', num: true, render: p => inr(p.price) },
+          { label: 'Price', num: true, render: p => <>{inr(p.price)}{p.prices?.wholesale ? <div className="small muted">W {inr(p.prices.wholesale)}</div> : null}{(p.packs || []).map((k, i) => <div className="small muted" key={i}>{k.name}×{k.qty} {inr(k.price || p.price * k.qty, 0)}</div>)}</> },
           { label: 'Margin', num: true, render: p => { if (!(p.cost > 0)) return <span className="muted">—</span>; const m = p.price ? ((p.price / (1 + p.gst / 100) - p.cost) / (p.price / (1 + p.gst / 100))) * 100 : 0; return <span style={{ color: m < 8 ? 'var(--bad)' : undefined }}>{num(m, 1)}%</span>; } },
           { label: 'Stock', num: true, render: p => { const s = stock[p.id] || 0; return <span style={{ color: s <= p.reorderMin ? 'var(--bad)' : undefined }}>{num(s, p.uom === 'KG' ? 2 : 0)} {p.uom}</span>; } },
           { label: '', render: p => p.active === false ? <Badge>Hidden</Badge> : p.sample ? <Badge tone="info">Sample</Badge> : null },
@@ -104,10 +104,29 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <Input label="MRP (₹)" type="number" value={p.mrp} onChange={f('mrp')} id="p-mrp" />
         <Input label="Selling price incl. GST (₹)" type="number" value={p.price} onChange={f('price')} id="p-price" />
         <Input label="Purchase rate, landed (₹)" type="number" value={p.cost} onChange={f('cost')} hint={`Margin ${num(margin, 1)}% on taxable value`} id="p-cost" />
+        <Input label={`Wholesale price per ${p.uom === 'KG' ? 'kg' : 'piece'} (₹)`} type="number" value={p.prices?.wholesale ?? ''} onChange={e => setP({ ...p, prices: { ...(p.prices || {}), wholesale: e.target.value } })} id="p-whole" hint="Used when the bill is set to Wholesale (F6)" />
+        <Input label={`Godown price per ${p.uom === 'KG' ? 'kg' : 'piece'} (₹)`} type="number" value={p.prices?.godown ?? ''} onChange={e => setP({ ...p, prices: { ...(p.prices || {}), godown: e.target.value } })} id="p-godown" />
         <Input label="Rack (Aisle-Rack-Shelf)" value={p.rack} onChange={f('rack')} id="p-rack" />
         <Input label="Reorder when stock is at" type="number" value={p.reorderMin} onChange={f('reorderMin')} id="p-min" />
         <Input label="Maximum stock" type="number" value={p.reorderMax} onChange={f('reorderMax')} id="p-max" />
         <Input label="Case pack (units per carton)" type="number" value={p.casePack} onChange={f('casePack')} id="p-case" />
+        <div className="span3 pack-box">
+          <div className="row between"><b>Sold in packs too</b><span className="small muted">e.g. BAG of 10 at its own price. Stock stays in {p.uom === 'KG' ? 'kg' : 'pieces'}.</span></div>
+          {(p.packs || []).map((k, i) => {
+            const fk = n => e => setP({ ...p, packs: p.packs.map((x, j) => j === i ? { ...x, [n]: e.target.value } : x) });
+            return (
+              <div className="grid g6" key={i} style={{ marginTop: 8 }}>
+                <Input label="Pack name" value={k.name} onChange={fk('name')} id={`pk-name-${i}`} placeholder="BAG" />
+                <Input label="Pieces in it" type="number" value={k.qty} onChange={fk('qty')} id={`pk-qty-${i}`} />
+                <Input label="Retail price (₹)" type="number" value={k.price ?? ''} onChange={fk('price')} id={`pk-price-${i}`} hint={Number(k.qty) > 1 && Number(k.price) > 0 ? `₹${(k.price / k.qty).toFixed(2)} each` : ''} />
+                <Input label="Wholesale (₹)" type="number" value={k.wholesale ?? ''} onChange={fk('wholesale')} id={`pk-wh-${i}`} />
+                <Input label="Pack barcode" value={k.barcode ?? ''} onChange={fk('barcode')} id={`pk-bar-${i}`} placeholder="carton code" />
+                <Btn size="sm" type="button" style={{ alignSelf: 'flex-end' }} onClick={() => setP({ ...p, packs: p.packs.filter((_, j) => j !== i) })}>Remove</Btn>
+              </div>
+            );
+          })}
+          <Btn size="sm" type="button" style={{ marginTop: 8 }} onClick={() => setP({ ...p, packs: [...(p.packs || []), { name: 'BOX', qty: Number(p.casePack) > 1 ? p.casePack : 12, price: '' }] })}>Add a pack size</Btn>
+        </div>
         <Select label="Main supplier" value={p.vendorId} onChange={f('vendorId')} options={[{ value: '', label: '—' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} id="p-vendor" />
         <Input label="Scale PLU (loose items)" value={p.plu} onChange={f('plu')} id="p-plu" />
         <label className="check"><input type="checkbox" checked={!!p.loose} onChange={f('loose')} /> Sold loose by weight</label>

@@ -12,8 +12,53 @@ import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum 
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
+import { LEVELS, levelLabel, lineQty, unitsOf, findByCode, qtyText } from '../lib/pricing.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
+
+// Batch allocation (FEFO) for every cart line, in base units. Lines whose quantity did not change
+// keep their earlier result, so a 60-item bill does not re-read every batch on each scan.
+async function allocateCart(cart, pmap, storeId, cfg, cache = new Map()) {
+  const m = {};
+  for (const c of cart) {
+    const p = pmap[c.productId];
+    if (!p) continue;
+    const base = lineQty(p, { count: c.qty, idx: c.unit ?? null }).qty;
+    const hit = cache.get(c.key);
+    if (hit && hit.forQty === base && hit.productId === c.productId) { m[c.key] = hit; continue; }
+    const res = { ...(await allocateFEFO(c.productId, base, storeId, cfg)), forQty: base, productId: c.productId };
+    cache.set(c.key, res);
+    m[c.key] = res;
+  }
+  return m;
+}
+
+// Everything on screen (and what gets saved) is worked out here, from the cart and its allocations.
+function buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, level }) {
+  const lines = cart.map(c => {
+    const p = pmap[c.productId];
+    if (!p) return null;
+    const lq = lineQty(p, { count: c.qty, idx: c.unit ?? null, level, price: c.price ?? null });
+    const a = allocs[c.key] || { alloc: [], blocked: [] };
+    const stale = !allocs[c.key] || allocs[c.key].forQty !== lq.qty;
+    const markdownDisc = r2(sum(a.alloc, x => (x.qty * lq.unitPrice * x.markdown) / 100));
+    return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: lq.qty, count: Number(c.qty) || 0, unit: c.unit ?? null,
+      unitPrice: lq.unitPrice, sell: lq.sell, level, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, stale, override: c.price != null, product: p };
+  }).filter(Boolean);
+  // Wholesale and godown rates are already the special price: shop offers apply to retail bills.
+  const o = level === 'retail' ? applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) }) : { perLine: {}, billDiscounts: [] };
+  const billLines = lines.map(l => ({
+    ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
+    offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
+  }));
+  const pre = computeBill(billLines, o.billDiscounts);
+  const maxPts = customer ? Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100)) : 0;
+  const usePts = Math.min(points, maxPts);
+  const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
+  const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
+  const bill = computeBill(billLines, bd, inter);
+  return { lines, billLines, bill, maxPts, usePts, inter, stale: lines.some(l => l.stale), blocked: lines.filter(l => !l.stale && !l.alloc.alloc.length && l.alloc.blocked.length) };
+}
 
 export default function POS() {
   const { user, settings, storeId, param, go } = useApp();
@@ -33,9 +78,12 @@ export default function POS() {
   const [due, setDue] = useState(0);
   const [b2b, setB2b] = useState('');
   const [points, setPoints] = useState(0);
+  const [level, setLevelState] = useState('retail');
   const [modal, setModal] = useState(null);
   const [orderId, setOrderId] = useState(null);
   const scanRef = useRef();
+  const allocCache = useRef(new Map());
+  const saving = useRef(false);
 
   const pmap = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
@@ -52,56 +100,48 @@ export default function POS() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [param?.orderId, products.length]);
 
-  // Re-run FEFO batch allocation whenever quantities change.
+  // Re-run FEFO batch allocation for lines whose quantity changed.
   useEffect(() => {
     let live = true;
     (async () => {
-      const m = {};
-      for (const c of cart) m[c.key] = await allocateFEFO(c.productId, c.qty, storeId, cfg);
+      const m = await allocateCart(cart, pmap, storeId, cfg, allocCache.current);
       if (live) setAllocs(m);
     })();
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, storeId]);
+  }, [cart, storeId, pmap]);
 
   const setCust = async c => {
     setCustomer(c);
     setPoints(0);
     setDue(c ? await customerDue(c.id) : 0);
     if (c?.gstin) setB2b(c.gstin);
+    if (c?.priceLevel && c.priceLevel !== 'retail') setLevelState(c.priceLevel);
   };
 
-  const view = useMemo(() => {
-    const lines = cart.map(c => {
-      const p = pmap[c.productId];
-      if (!p) return null;
-      const unitPrice = c.price ?? p.price;
-      const a = allocs[c.key] || { alloc: [], blocked: [] };
-      const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null };
-    }).filter(Boolean);
-    const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
-    const billLines = lines.map(l => ({
-      ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
-      offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
-    }));
-    const pre = computeBill(billLines, o.billDiscounts);
-    const maxPts = customer ? Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100)) : 0;
-    const usePts = Math.min(points, maxPts);
-    const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
-    const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
-    const bill = computeBill(billLines, bd, inter);
-    return { lines, billLines, bill, maxPts, usePts, inter, blocked: lines.filter(l => !l.alloc.alloc.length && l.alloc.blocked.length) };
-  }, [cart, allocs, offers, pmap, customer, points, b2b, settings]);
+  // Wholesale / godown rates: a customer marked for that rate gets it; otherwise a cashier needs a manager.
+  const setLevel = async v => {
+    if (v === level) return;
+    if (v !== 'retail' && customer?.priceLevel !== v && !['owner', 'manager'].includes(user.role)) {
+      const m = await approve(`Bill at ${levelLabel(v)} rates`);
+      if (!m) return;
+      audit('price_level', { level: v, approvedBy: m.name }, user);
+    }
+    setLevelState(v);
+    scanRef.current?.focus();
+  };
+
+  const view = useMemo(() => buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, level }), [cart, allocs, offers, pmap, customer, points, b2b, settings, level]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q.length < 2 || /^\d{8,}$/.test(q)) return [];
+    if (q.length < 2 || /^\d{6,}$/.test(q)) return [];
     return smartSearch(query.trim(), products, 8);   // Hindi/Odia names and typing mistakes too
   }, [query, products]);
 
-  const addProduct = async (p, qty = 1) => {
-    const { alloc, blocked } = await allocateFEFO(p.id, qty, storeId, cfg);
+  const addProduct = async (p, qty = 1, idx = null) => {
+    const base = lineQty(p, { count: qty, idx }).qty;
+    const { alloc, blocked } = await allocateFEFO(p.id, base, storeId, cfg);
     if (!alloc.length && blocked.length) {
       beep(); toast(`${p.name}: only expired or blocked stock on hand. Sale stopped — move it to quarantine.`, 'bad');
       audit('blocked_scan', { product: p.name }, user);
@@ -109,9 +149,9 @@ export default function POS() {
     }
     beep(true);
     setCart(c => {
-      const ex = c.find(x => x.productId === p.id && !p.loose);
+      const ex = c.find(x => x.productId === p.id && (x.unit ?? null) === idx && !p.loose && x.price == null);
       if (ex) return c.map(x => x === ex ? { ...x, qty: Number(x.qty) + qty } : x);
-      return [...c, { key: uid('l'), productId: p.id, qty }];
+      return [...c, { key: uid('l'), productId: p.id, qty, unit: idx }];
     });
     setQuery(''); setHi(0);
     scanRef.current?.focus();
@@ -121,18 +161,21 @@ export default function POS() {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    if (suggestions.length && !/^\d{8,}$/.test(q)) return addProduct(suggestions[hi] || suggestions[0]);
-    // An exact barcode wins over a weighing-scale reading, so store and maker barcodes never
-    // get mistaken for scale stickers.
-    const p = products.find(x => x.barcode === q || x.id.toLowerCase() === q.toLowerCase() || (x.plu && x.plu === q));
-    if (p) {
-      if (p.loose) return setModal({ type: 'weight', product: p });
-      return addProduct(p);
+    // An exact code always wins: product barcode, pack/carton barcode, SKU or PLU. Then weighing-scale
+    // stickers, then the name list. So a scanned code can never add a look-alike product by name.
+    const hit = findByCode(products, q);
+    if (hit) {
+      if (hit.product.loose && hit.idx == null) return setModal({ type: 'weight', product: hit.product });
+      return addProduct(hit.product, 1, hit.idx);
     }
     const scale = parseScaleBarcode(q);
     if (scale) {
       const sp = products.find(x => x.plu === scale.plu);
       if (sp) return addProduct(sp, r2(scale.grams / 1000));
+    }
+    if (suggestions.length && !/^\d{6,}$/.test(q)) {
+      const p = suggestions[hi] || suggestions[0];
+      return p.loose ? setModal({ type: 'weight', product: p }) : addProduct(p);
     }
     beep(); setQuery('');
     if (/^[A-Z0-9-]{6,20}$/i.test(q)) {
@@ -144,16 +187,18 @@ export default function POS() {
   };
 
   const setQty = (key, qty) => setCart(c => c.map(x => x.key === key ? { ...x, qty: Math.max(0, qty) } : x).filter(x => x.qty > 0));
+  const setUnit = (key, unit) => setCart(c => c.map(x => x.key === key ? { ...x, unit, price: undefined } : x));
   const removeLine = key => setCart(c => c.filter(x => x.key !== key));
 
   const overridePrice = async line => {
     const v = await new Promise(res => setModal({ type: 'price', line, res }));
     setModal(null);
     if (v == null) return;
-    const mgr = await approve(`Change price of ${line.name} to ${inr(v)} (shelf price ${inr(line.unitPrice)})`);
+    const shown = line.sell ? line.sell.price : line.unitPrice;
+    const mgr = await approve(`Change price of ${line.name} to ${inr(v)}${line.sell ? ' per ' + line.sell.unit : ''} (shelf price ${inr(shown)})`);
     if (!mgr) return;
     setCart(c => c.map(x => x.key === line.key ? { ...x, price: Number(v) } : x));
-    audit('price_override', { product: line.name, from: line.unitPrice, to: v, approvedBy: mgr.name }, user);
+    audit('price_override', { product: line.name, from: shown, to: v, approvedBy: mgr.name }, user);
   };
 
   const clearBill = async (force = false) => {
@@ -162,28 +207,55 @@ export default function POS() {
       if (!mgr) return;
       audit('bill_cancel', { items: cart.length, value: view.bill.totals.payable, approvedBy: mgr.name }, user);
     }
-    setCart([]); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
+    setCart([]); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null); setLevelState('retail');
+    allocCache.current.clear();
     scanRef.current?.focus();
   };
 
   const hold = async () => {
     if (!cart.length) return;
-    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
+    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, level, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
     toast('Bill put on hold. Press F8 to bring it back.');
     clearBill(true);
   };
 
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const openPay = (tries = 0) => {
+    const v = viewRef.current;
+    if (!v.lines.length || v.blocked.length) return;
+    if (v.stale && tries < 50) { setTimeout(() => openPay(tries + 1), 40); return; }   // last scan's stock check still running
+    setModal({ type: 'pay' });
+  };
+
   const finish = async payments => {
+    if (saving.current) return;                     // a double press never makes two bills
     if (b2b && !validGSTIN(b2b)) { toast('That GSTIN is not valid. Fix it or clear it for a normal bill.', 'bad'); return; }
-    const sale = await saveSale({
-      bill: view.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
-      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId,
-    });
-    if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
-    const short = view.lines.filter(l => l.alloc.shortfall > 0);
-    if (short.length) { toast(`Stock count was short for ${short.map(l => l.name).join(', ')}. Manager alerted to recount.`, 'warn'); audit('negative_stock', { items: short.map(l => l.name), bill: sale.no }, user); }
-    setModal({ type: 'receipt', sale });
-    clearBill(true);
+    saving.current = true;
+    try {
+      // Batches are read again right now, so stock sold at another counter a moment ago is respected.
+      const fresh = await allocateCart(cart, pmap, storeId, cfg, new Map());
+      const v = buildView({ cart, allocs: fresh, offers, pmap, customer, points, b2b, settings, level });
+      if (Math.abs(v.bill.totals.payable - view.bill.totals.payable) > 0.001) {
+        setAllocs(fresh);
+        toast(`Stock changed while billing — the total is now ${inr(v.bill.totals.payable)}. Take payment again.`, 'warn');
+        return;
+      }
+      if (v.blocked.length) { setAllocs(fresh); toast(`${v.blocked.map(l => l.name).join(', ')}: only expired stock left.`, 'bad'); return; }
+      const sale = await saveSale({
+        bill: v.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
+        pointsUsed: v.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: v.inter } : null, orderId, level,
+      });
+      if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
+      const short = v.lines.filter(l => l.alloc.shortfall > 0);
+      if (short.length) { toast(`Stock count was short for ${short.map(l => l.name).join(', ')}. Manager alerted to recount.`, 'warn'); audit('negative_stock', { items: short.map(l => l.name), bill: sale.no }, user); }
+      setModal({ type: 'receipt', sale });
+      clearBill(true);
+    } catch (e) {
+      toast('Bill not saved: ' + (e.message || e), 'bad');
+    } finally {
+      saving.current = false;
+    }
   };
 
   useHotkeys({
@@ -192,8 +264,9 @@ export default function POS() {
     F7: hold,
     F8: () => setModal({ type: 'recall' }),
     F9: () => setModal({ type: 'return' }),
-    F12: () => cart.length && !view.blocked.length && setModal({ type: 'pay' }),
-  }, [cart, view, customer]);
+    F6: () => setLevel(LEVELS[(LEVELS.findIndex(l => l.value === level) + 1) % LEVELS.length].value),
+    F12: () => openPay(),
+  }, [cart, view, customer, level]);
 
   if (shift === undefined) return <p className="muted">Loading counter…</p>;
   if (!shift) return <OpenShift storeId={storeId} />;
@@ -243,8 +316,8 @@ export default function POS() {
                   <div className="grow">
                     <div className="name">{l.name}</div>
                     <div className="small muted">
-                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{inr(l.unitPrice)}{l.uom === 'KG' ? '/kg' : ''}</button>
-                      {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%
+                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{l.sell ? `${inr(l.sell.price)}/${l.sell.unit}×${l.sell.size} (${inr(l.unitPrice)} each)` : `${inr(l.unitPrice)}${l.uom === 'KG' ? '/kg' : ''}`}</button>
+                      {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%{l.level !== 'retail' && <b> · {levelLabel(l.level)}</b>}
                       {a.alloc.filter(x => x.batchNo !== 'NO-STOCK').map(x => <span key={x.batchId}> · {x.batchNo}{x.expiry ? ` (exp ${x.expiry})` : ''}</span>)}
                     </div>
                     {l.offerNote && <div className="small" style={{ color: 'var(--ok)' }}>{l.offerNote}</div>}
@@ -252,10 +325,15 @@ export default function POS() {
                     {!a.alloc.length && a.blocked.length > 0 && <Badge tone="bad">Expired stock — cannot be sold</Badge>}
                   </div>
                   <div className="qty">
-                    <button onClick={() => setQty(l.key, r2(l.qty - (l.uom === 'KG' ? 0.25 : 1)))} aria-label="Less">−</button>
-                    <input value={l.qty} inputMode="decimal" onChange={e => setQty(l.key, Number(e.target.value) || 0)} aria-label="Quantity" />
-                    <button onClick={() => setQty(l.key, r2(l.qty + (l.uom === 'KG' ? 0.25 : 1)))} aria-label="More">+</button>
+                    <button onClick={() => setQty(l.key, r2(l.count - (l.uom === 'KG' && !l.sell ? 0.25 : 1)))} aria-label="Less">−</button>
+                    <input value={l.count} inputMode="decimal" onChange={e => setQty(l.key, Number(e.target.value) || 0)} aria-label="Quantity" />
+                    <button onClick={() => setQty(l.key, r2(l.count + (l.uom === 'KG' && !l.sell ? 0.25 : 1)))} aria-label="More">+</button>
                   </div>
+                  <div className="unit-cell">{unitsOf(l.product).length > 1 ? (
+                    <select className="input unit-pick" value={l.unit ?? ''} onChange={e => setUnit(l.key, e.target.value === '' ? null : Number(e.target.value))} aria-label={`Unit for ${l.name}`}>
+                      {unitsOf(l.product).map(u => <option key={String(u.idx)} value={u.idx ?? ''}>{u.idx == null ? u.name : `${u.name} ×${u.size}`}</option>)}
+                    </select>
+                  ) : <span className="small muted">{l.uom === 'KG' ? 'kg' : 'pcs'}</span>}</div>
                   <div className="num line-total">{inr(bl?.total || 0)}{l.lineDisc > 0 && <div className="small" style={{ color: 'var(--ok)' }}>−{inr(l.lineDisc)}</div>}</div>
                   <button className="icon-btn" onClick={() => removeLine(l.key)} aria-label={`Remove ${l.name}`}>✕</button>
                 </div>
@@ -264,7 +342,7 @@ export default function POS() {
           </Card>
           <div className="keys small muted">
             <span><span className="kbd">F2</span> scan</span><span><span className="kbd">F3</span> customer</span><span><span className="kbd">F7</span> hold</span>
-            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F9</span> return</span><span><span className="kbd">F12</span> pay</span>
+            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F9</span> return</span><span><span className="kbd">F6</span> retail/wholesale</span><span><span className="kbd">F12</span> pay</span>
           </div>
         </div>
 
@@ -295,6 +373,10 @@ export default function POS() {
 
           <Card title="Total">
             <div className="totals">
+              <div className="level-pick" role="radiogroup" aria-label="Price level">
+                {LEVELS.map(lv => <button key={lv.value} role="radio" aria-checked={level === lv.value} className={level === lv.value ? 'on' : ''} onClick={() => setLevel(lv.value)}>{lv.label}</button>)}
+                <span className="kbd">F6</span>
+              </div>
               <div className="row small"><span>MRP value</span><span className="mono">{inr(t.mrpTotal)}</span></div>
               <div className="row small"><span>Before discounts</span><span className="mono">{inr(t.gross)}</span></div>
               {t.lineDisc > 0 && <div className="row small"><span>Offers & markdowns</span><span className="mono">−{inr(t.lineDisc)}</span></div>}
@@ -304,7 +386,7 @@ export default function POS() {
               <hr className="sep" />
               <div className="row"><span className="muted">To pay</span><span className="grand">{inr(t.payable)}</span></div>
               {t.savings > 0 && <div className="save-pill">Customer saves {inr(t.savings)} on MRP</div>}
-              <Btn kind="primary" size="lg" disabled={!cart.length || view.blocked.length > 0} onClick={() => setModal({ type: 'pay' })}>Take payment <span className="kbd">F12</span></Btn>
+              <Btn kind="primary" size="lg" disabled={!cart.length || view.blocked.length > 0} onClick={() => openPay()}>Take payment <span className="kbd">F12</span></Btn>
               <Btn onClick={hold} disabled={!cart.length}>Hold bill <span className="kbd">F7</span></Btn>
             </div>
           </Card>
@@ -319,7 +401,7 @@ export default function POS() {
       {modal?.type === 'receipt' && <ReceiptModal sale={modal.sale} settings={settings} onClose={() => { setModal(null); scanRef.current?.focus(); }} />}
       {modal?.type === 'recall' && <RecallModal onClose={() => setModal(null)} onPick={async h => {
         if (cart.length && !(await confirm('Replace the current bill with the held one?', 'Replace'))) return;
-        setCart(h.cart); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
+        setCart(h.cart); setLevelState(h.level || 'retail'); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
       }} />}
       {modal?.type === 'return' && <ReturnModal settings={settings} onClose={() => setModal(null)} onDone={async (bill, payments, orig) => {
         if (bill.totals.payable > (settings.supervisorRefundLimit || 500)) {
@@ -372,12 +454,15 @@ function WeightModal({ product, onClose, onAdd }) {
 }
 
 function PriceModal({ line, onClose, onSave }) {
-  const [v, setV] = useState(String(line.unitPrice));
+  const per = line.sell ? line.sell.price : line.unitPrice;
+  const cap = line.sell ? line.mrp * line.sell.size : line.mrp;
+  const unit = line.sell ? `${line.sell.unit} of ${line.sell.size}` : 'unit';
+  const [v, setV] = useState(String(per));
   return (
-    <Modal title={`Change price: ${line.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" onClick={() => onSave(Number(v))}>Next: manager approval</Btn></>}>
-      <Input label="New price per unit (₹)" type="number" value={v} onChange={e => setV(e.target.value)} autoFocus id="newprice" />
-      <p className="small muted" style={{ marginTop: 8 }}>Cost {inr(line.cost)} · MRP {inr(line.mrp)}. Prices above MRP are not allowed.</p>
-      {Number(v) > line.mrp && <p className="err small">Above MRP — not allowed by law.</p>}
+    <Modal title={`Change price: ${line.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={Number(v) > cap} onClick={() => onSave(Number(v))}>Next: manager approval</Btn></>}>
+      <Input label={`New price per ${unit} (₹)`} type="number" value={v} onChange={e => setV(e.target.value)} autoFocus id="newprice" />
+      <p className="small muted" style={{ marginTop: 8 }}>Cost {inr(line.cost * (line.sell?.size || 1))} · MRP {inr(cap)}{line.sell ? ` (${inr(line.mrp)} each)` : ''}. Prices above MRP are not allowed.</p>
+      {Number(v) > cap && <p className="err small">Above MRP — not allowed by law.</p>}
     </Modal>
   );
 }
@@ -386,10 +471,17 @@ function CustomerModal({ onClose, onPick }) {
   const { settings } = useApp();
   const [q, setQ] = useState('');
   const [name, setName] = useState('');
+  // Indexed look-ups first (phone / name start), so this stays instant with 50,000 customers.
   const list = useLive(async () => {
-    const all = await db.customers.toArray();
     const s = q.trim().toLowerCase();
-    return s ? all.filter(c => c.phone.includes(s) || c.name.toLowerCase().includes(s)).slice(0, 8) : all.sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0)).slice(0, 6);
+    if (!s) return (await db.customers.orderBy('updatedAt').reverse().limit(60).toArray()).sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0)).slice(0, 6);
+    const digits = s.replace(/\D/g, '');
+    let hits = /^\d+$/.test(s) ? await db.customers.where('phone').startsWith(digits).limit(8).toArray() : await db.customers.where('name').startsWithIgnoreCase(s).limit(8).toArray();
+    if (hits.length < 8 && s.length >= 3) {
+      const more = await db.customers.filter(c => String(c.phone).includes(s) || String(c.name).toLowerCase().includes(s)).limit(8).toArray();
+      hits = [...hits, ...more.filter(m => !hits.some(h => h.id === m.id))].slice(0, 8);
+    }
+    return hits;
   }, [q], []);
   const add = async () => {
     const phone = q.replace(/\D/g, '');
@@ -532,7 +624,7 @@ function ReturnModal({ onClose, onDone }) {
     e?.preventDefault();
     const s = await db.sales.where('no').equals(no.trim().toUpperCase()).first() || await db.sales.where('no').equals(no.trim()).first();
     if (!s || s.type !== 'sale') { setErr('No sale with that bill number.'); return; }
-    const earlier = await db.sales.filter(x => x.type === 'return' && x.origNo === s.no).toArray();
+    const earlier = await db.sales.where('type').equals('return').filter(x => x.origNo === s.no).toArray();
     const returned = {};
     earlier.forEach(r => r.lines.forEach(l => (returned[l.productId] = (returned[l.productId] || 0) + l.qty)));
     setSale({ ...s, returned }); setErr('');

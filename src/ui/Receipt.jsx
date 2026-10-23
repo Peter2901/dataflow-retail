@@ -1,12 +1,13 @@
 import React from 'react';
 import { inr, fmtDT, num, maskPhone } from '../lib/util.js';
+import { qtyText } from '../lib/pricing.js';
 
 export function receiptText(sale, s) {
   const L = [];
   L.push(`*${s.storeName}*`);
   L.push(`${sale.type === 'return' ? 'Credit note' : 'Bill'} ${sale.no} · ${fmtDT(sale.ts)}`);
   L.push('');
-  sale.lines.forEach(l => L.push(`${l.name}${l.localName ? ' / ' + l.localName : ''} × ${num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
+  sale.lines.forEach(l => L.push(`${l.name}${l.localName ? ' / ' + l.localName : ''} × ${l.sell ? qtyText(l) : num(l.qty, l.uom === 'KG' ? 3 : 0)} = ${inr(l.total)}`));
   L.push('');
   if (sale.totals.lineDisc + sale.totals.billDisc > 0) L.push(`Discounts: −${inr(sale.totals.lineDisc + sale.totals.billDisc)}`);
   L.push(`*Total: ${inr(sale.totals.payable)}*`);
@@ -37,12 +38,13 @@ export default function Receipt({ sale, settings: s }) {
       <div>Date: {fmtDT(sale.ts)} · {sale.cashierName}</div>
       {sale.customerName && <div>Customer: {sale.customerName} {sale.customerPhone ? '· ' + maskPhone(sale.customerPhone) : ''}</div>}
       {sale.b2b?.gstin && <div>Buyer GSTIN: {sale.b2b.gstin}</div>}
+      {sale.priceLevel && <div>Rate: {sale.priceLevel === 'wholesale' ? 'Wholesale' : sale.priceLevel === 'godown' ? 'Godown' : sale.priceLevel}</div>}
       <hr />
       <table><tbody>
         {sale.lines.map((l, i) => (
           <React.Fragment key={i}>
             <tr><td colSpan="3">{l.name}{l.localName ? <div className="loc">{l.localName}</div> : null}</td></tr>
-            <tr><td>{num(l.qty, l.uom === 'KG' ? 3 : 0)} × {l.unitPrice}</td><td className="r">MRP {l.mrp}</td><td className="r">{l.total.toFixed(2)}</td></tr>
+            <tr><td>{l.sell ? `${qtyText(l)} × ${l.sell.price}` : `${num(l.qty, l.uom === 'KG' ? 3 : 0)} × ${l.unitPrice}`}</td><td className="r">MRP {l.mrp}</td><td className="r">{l.total.toFixed(2)}</td></tr>
             <tr><td colSpan="3" style={{ fontSize: 10 }}>HSN {l.hsn} · GST {l.gst}%{l.lineDisc ? ` · disc ${l.lineDisc.toFixed(2)}` : ''}</td></tr>
           </React.Fragment>
         ))}

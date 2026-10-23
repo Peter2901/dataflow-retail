@@ -31,28 +31,33 @@ export async function partyAccount(kind, party) {
   return id;
 }
 
-export async function post({ ts = Date.now(), ref, type, narration, lines }) {
+/** A balanced journal entry (not saved yet). */
+export function buildEntry({ ts = Date.now(), ref, type, narration, lines }) {
   const dr = r2(sum(lines, l => l.dr || 0));
   const cr = r2(sum(lines, l => l.cr || 0));
   const diff = r2(dr - cr);
   if (Math.abs(diff) >= 0.01) lines.push(diff > 0 ? { acc: 'roundoff', cr: diff } : { acc: 'roundoff', dr: -diff });
-  const entry = { id: uid('j_'), ts, ref, type, narration, lines: lines.filter(l => (l.dr || 0) !== 0 || (l.cr || 0) !== 0) };
+  return { id: uid('j_'), ts, ref, type, narration, lines: lines.filter(l => (l.dr || 0) !== 0 || (l.cr || 0) !== 0) };
+}
+
+export async function post(args) {
+  const entry = buildEntry(args);
   await db.journal.add(entry);
   return entry;
 }
 
 const PAY_ACC = { cash: 'cash', upi: 'upi', card: 'card', bank: 'bank' };
 
-export async function postSale(sale, customer) {
+/** The books entry for a bill. `custAcc` is the customer's account id when part is on credit. */
+export function saleEntry(sale, custAcc) {
   const t = sale.totals;
   const sign = sale.type === 'return' ? -1 : 1;
   const lines = [];
   for (const p of sale.payments) {
-    if (p.mode === 'credit') lines.push({ acc: await partyAccount('cust', customer), dr: p.amount * sign });
+    if (p.mode === 'credit') lines.push({ acc: custAcc, dr: p.amount * sign });
     else if (p.mode === 'points') lines.push({ acc: 'discount', dr: p.amount * sign });
     else lines.push({ acc: PAY_ACC[p.mode] || 'cash', dr: p.amount * sign });
   }
-  const pointsPaid = sum(sale.payments.filter(p => p.mode === 'points'), p => p.amount);
   lines.push({ acc: 'sales', cr: (t.taxable) * sign });
   lines.push({ acc: 'out_cgst', cr: t.cgst * sign }, { acc: 'out_sgst', cr: t.sgst * sign }, { acc: 'out_igst', cr: t.igst * sign });
   if (t.roundOff) lines.push(t.roundOff > 0 ? { acc: 'roundoff', cr: t.roundOff * sign } : { acc: 'roundoff', dr: -t.roundOff * sign });
@@ -64,8 +69,14 @@ export async function postSale(sale, customer) {
     if ((l.cr || 0) < 0) return { acc: l.acc, dr: -l.cr };
     return l;
   });
-  void pointsPaid;
-  return post({ ts: sale.ts, ref: sale.no, type: sale.type === 'return' ? 'credit_note' : 'sale', narration: `${sale.type === 'return' ? 'Return' : 'Sale'} ${sale.no}`, lines: norm });
+  return buildEntry({ ts: sale.ts, ref: sale.no, type: sale.type === 'return' ? 'credit_note' : 'sale', narration: `${sale.type === 'return' ? 'Return' : 'Sale'} ${sale.no}`, lines: norm });
+}
+
+export async function postSale(sale, customer) {
+  const acc = sale.payments.some(p => p.mode === 'credit') ? await partyAccount('cust', customer) : null;
+  const entry = saleEntry(sale, acc);
+  await db.journal.add(entry);
+  return entry;
 }
 
 export async function postPurchase(pur, supplier, interState) {
@@ -97,14 +108,16 @@ export async function postExpense({ acc, amount, mode, narration, ts }) {
 
 // Balances: positive = debit balance.
 export async function balances(untilTs = Infinity, fromTs = -Infinity) {
-  const j = await db.journal.toArray();
+  const j = isFinite(fromTs) || isFinite(untilTs)
+    ? await db.journal.where('ts').between(isFinite(fromTs) ? fromTs : -Infinity, isFinite(untilTs) ? untilTs : Infinity, true, true).toArray()
+    : await db.journal.toArray();
   const b = {};
   j.filter(e => e.ts <= untilTs && e.ts >= fromTs).forEach(e => e.lines.forEach(l => (b[l.acc] = r2((b[l.acc] || 0) + (l.dr || 0) - (l.cr || 0)))));
   return b;
 }
 
 export async function ledger(accId) {
-  const j = await db.journal.orderBy('ts').toArray();
+  const j = await db.journal.where('accs').equals(accId).sortBy('ts');   // only entries of this account
   let run = 0;
   const rows = [];
   j.forEach(e => e.lines.filter(l => l.acc === accId).forEach(l => {

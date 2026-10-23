@@ -75,7 +75,7 @@ function ByItem({ products, batches, cfg }) {
 }
 
 function Moves({ pmap, storeId }) {
-  const moves = useLive(async () => (await db.stockMoves.where('storeId').equals(storeId).reverse().sortBy('ts')).slice(0, 300), [storeId], null);
+  const moves = useLive(() => db.stockMoves.orderBy('ts').reverse().filter(m => m.storeId === storeId).limit(300).toArray(), [storeId], null);
   return <div className="card"><Table rows={moves} cols={[
     { label: 'When', render: m => fmtDT(m.ts) }, { label: 'Item', render: m => pmap[m.productId]?.name || m.productId },
     { label: 'Type', render: m => <Badge tone={m.qty > 0 ? 'ok' : 'neutral'}>{m.type}</Badge> }, { label: 'Ref', key: 'ref' },
