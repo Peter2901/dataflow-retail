@@ -156,7 +156,28 @@ offline — without them you can never update the app. Phones with the old test-
 ## Tested with huge data
 
 The app was tested (tools/stress) against a year of a busy 4-counter store: 25,000 products, 30,000 customers, 2,50,000 bills
-(about 10 lakh stock moves), 6,000 purchase bills. See the October 2026 notes in the commit history for the timings.
+(about 10 lakh stock moves, 2.5 lakh journal lines), 6,000 purchase bills. Timings in a headless Chromium on a cloud machine
+(a shop PC will be in the same range):
+
+| Screen / job | Before (Oct 2026) | After |
+|---|---|---|
+| PIN → dashboard | 32 s | 1.6–2.0 s |
+| Products page | 52.5 s | 1.6 s |
+| Product search | 27.7 s | 0.9 s |
+| Stock & batches | crashed | 0.75 s |
+| Customers / Udhaar / Reports | — | 1.5 s / 0.4 s / 0.4 s |
+| Accounts | — | 3–4 s first time, 1.1 s after |
+| GST Saathi | — | 10 s first time (19 months worked out once), 3 s after |
+| Year summary / CA pack | — | 0.1 s / 0.1 s |
+| Counter: type "Atta" / typo "parlee biskut" | — | 0.1 s / 0.5 s |
+| Counter: one scan → on the bill | — | 0.3–0.4 s |
+| Counter: 8 scans back to back | lost scans | all 8 lines in 3.4 s |
+| Save an 8-line bill | — | 0.2 s |
+| Sync "anything new?" check | 37 s | 4 ms |
+| Backup (106 MB file) / restore | — | 48 s / 10 min (checked first, counts exact) |
+| Import 20,000 rows | — | checked 0.3 s, loaded 0.3 s |
+
+The first open after updating the app upgrades the database once (about 2 minutes on data this size).
 
 ## Not built yet (next phase)
 

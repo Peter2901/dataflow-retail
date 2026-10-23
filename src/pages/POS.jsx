@@ -151,7 +151,7 @@ export default function POS() {
     return smartSearch(query.trim(), products, 8);   // Hindi/Odia names and typing mistakes too
   }, [query, products]);
 
-  const addProduct = async (p, qty = 1) => {
+  const addProduct = async (p, qty = 1, fromScan = false) => {
     const { alloc, blocked } = await allocateFEFO(p.id, qty, storeId, cfg);
     if (!alloc.length && blocked.length) {
       beep(); toast(`${p.name}: only expired or blocked stock on hand. Sale stopped — move it to quarantine.`, 'bad');
@@ -164,31 +164,41 @@ export default function POS() {
       if (ex) return c.map(x => x === ex ? { ...x, qty: Number(x.qty) + qty } : x);
       return [...c, { key: uid('l'), productId: p.id, qty }];
     });
-    setQuery(''); setHi(0);
+    if (!fromScan) { setQuery(''); setHi(0); }      // a scan already emptied the box (the next code may be in it now)
     scanRef.current?.focus();
   };
 
-  const onScan = async e => {
+  // Scans are handled one after another, in order. The code is read from the box itself (not from the last
+  // screen update) and the box is emptied at once, so a fast scanner's next code is never lost or cut off,
+  // even when the counter is busy with a big store's data.
+  const scanQueue = useRef(Promise.resolve());
+  const onScan = e => {
     e.preventDefault();
-    const q = query.trim();
+    const q = String(scanRef.current?.value ?? query).trim();
     if (!q) return;
+    const sugg = q === query.trim() ? suggestions : null, pick = hi;
+    setQuery(''); setHi(0);
+    scanQueue.current = scanQueue.current.then(() => handleCode(q, sugg, pick)).catch(err => toast('Scan not added: ' + (err.message || err), 'bad'));
+  };
+  const handleCode = async (q, sugg, pick) => {
     // An exact code always wins (barcode, SKU, PLU), then weighing-scale stickers, then the name list —
     // so a scanned code can never add a look-alike product by name.
     const p = products.find(x => x.barcode === q || x.id.toLowerCase() === q.toLowerCase() || (x.plu && x.plu === q));
     if (p) {
       if (p.loose) return setModal({ type: 'weight', product: p });
-      return addProduct(p);
+      return addProduct(p, 1, true);
     }
     const scale = parseScaleBarcode(q);
     if (scale) {
       const sp = products.find(x => x.plu === scale.plu);
-      if (sp) return addProduct(sp, r2(scale.grams / 1000));
+      if (sp) return addProduct(sp, r2(scale.grams / 1000), true);
     }
-    if (suggestions.length && !/^\d{6,}$/.test(q)) {
-      const sp = suggestions[hi] || suggestions[0];
-      return sp.loose ? setModal({ type: 'weight', product: sp }) : addProduct(sp);
+    const list = /^\d{6,}$/.test(q) ? [] : (sugg || smartSearch(q, products, 8));
+    if (list.length) {
+      const sp = list[pick] || list[0];
+      return sp.loose ? setModal({ type: 'weight', product: sp }) : addProduct(sp, 1, true);
     }
-    beep(); setQuery('');
+    beep();
     if (/^[A-Z0-9-]{6,20}$/i.test(q)) {
       // Unknown barcode: add the product right here (cashiers need a manager's PIN).
       const ok = ['owner', 'manager'].includes(user.role) || await approve(`Barcode ${q} is not in the product list. Approve adding it as a new product.`);
