@@ -1067,6 +1067,31 @@ Suppliers due this week {a}	इस हफ़्ते सप्लायर क�
 {a} at cost · remove now	लागत {a} · अभी हटाएँ	ଖର୍ଚ୍ଚ {a} · ଏବେ ହଟାନ୍ତୁ
 {a} at cost	लागत {a}	ଖର୍ଚ୍ଚ {a}
 . Load your real product list in Import & setup, then clear the samples in Settings.	। अपनी असली सामान सूची इम्पोर्ट और सेटअप में लोड करें, फिर सेटिंग्स में नमूना हटाएँ।	। ଆପଣଙ୍କ ପ୍ରକୃତ ଜିନିଷ ତାଲିକା ଇମ୍ପୋର୍ଟ ଓ ସେଟଅପରେ ଲୋଡ୍ କରନ୍ତୁ, ତାପରେ ସେଟିଂସରେ ନମୁନା ହଟାନ୍ତୁ।
+Retail	खुदरा	ଖୁଚୁରା
+Wholesale	थोक	ପାଇକାରୀ
+Godown	गोदाम	ଗୋଦାମ
+retail/wholesale	खुदरा/थोक	ଖୁଚୁରା/ପାଇକାରୀ
+Rate for this customer	इस ग्राहक का रेट	ଏହି ଗ୍ରାହକଙ୍କ ରେଟ୍
+Shops buying in bulk get the Wholesale rate automatically at the counter	थोक में खरीदने वाली दुकानों को काउंटर पर अपने-आप थोक रेट मिलता है	ପାଇକାରୀ କିଣୁଥିବା ଦୋକାନକୁ କାଉଣ୍ଟରରେ ଆପେ ପାଇକାରୀ ରେଟ୍ ମିଳେ
+Sold in packs too	पैक में भी बिकता है	ପ୍ୟାକରେ ମଧ୍ୟ ବିକ୍ରି ହୁଏ
+Pack name	पैक का नाम	ପ୍ୟାକ୍ ନାମ
+Pieces in it	उसमें पीस	ସେଥିରେ ପିସ୍
+Retail price (₹)	खुदरा दाम (₹)	ଖୁଚୁରା ଦାମ (₹)
+Wholesale (₹)	थोक (₹)	ପାଇକାରୀ (₹)
+Pack barcode	पैक का बारकोड	ପ୍ୟାକ୍ ବାରକୋଡ୍
+Add a pack size	पैक साइज़ जोड़ें	ପ୍ୟାକ୍ ସାଇଜ୍ ଯୋଡନ୍ତୁ
+Wholesale price per piece (₹)	थोक दाम प्रति पीस (₹)	ପାଇକାରୀ ଦାମ ପ୍ରତି ପିସ୍ (₹)
+Wholesale price per kg (₹)	थोक दाम प्रति किलो (₹)	ପାଇକାରୀ ଦାମ ପ୍ରତି କିଲୋ (₹)
+Godown price per piece (₹)	गोदाम दाम प्रति पीस (₹)	ଗୋଦାମ ଦାମ ପ୍ରତି ପିସ୍ (₹)
+Godown price per kg (₹)	गोदाम दाम प्रति किलो (₹)	ଗୋଦାମ ଦାମ ପ୍ରତି କିଲୋ (₹)
+Used when the bill is set to Wholesale (F6)	जब बिल थोक (F6) पर हो तब लगता है	ବିଲ୍ ପାଇକାରୀ (F6) ଥିଲେ ଲାଗେ
+Show more	और दिखाएँ	ଆହୁରି ଦେଖାନ୍ତୁ
+Bill at {x} rates	{x} रेट पर बिल	{x} ରେଟ୍‌ରେ ବିଲ୍
+Load, but please check	लोड करें, पर जाँच लें	ଲୋଡ୍ କରନ୍ତୁ, କିନ୍ତୁ ଯାଞ୍ଚ କରନ୍ତୁ
+To check	जाँचने को	ଯାଞ୍ଚ ପାଇଁ
+Sold in packs / loose by kg	पैक में / खुला किलो में	ପ୍ୟାକରେ / ଖୋଲା କିଲୋରେ
+Fill suggested HSN	सुझाया HSN भरें	ପରାମର୍ଶିତ HSN ଭରନ୍ତୁ
+Download the list to check	जाँच की सूची डाउनलोड करें	ଯାଞ୍ଚ ତାଲିକା ଡାଉନଲୋଡ୍ କରନ୍ତୁ
 Dashboard	डैशबोर्ड	ଡ୍ୟାସବୋର୍ଡ
 Stock & buying	स्टॉक और खरीद	ଷ୍ଟକ୍ ଓ କିଣା
 Offers & prices	ऑफ़र और दाम	ଅଫର ଓ ଦାମ
@@ -1078,7 +1103,6 @@ Fill this once. It prints on every bill and is used for GST, UPI and WhatsApp me
 {a} of {b} must-fill done	{b} में से {a} ज़रूरी भरे	{b} ମଧ୍ୟରୁ {a} ଜରୁରୀ ଭରାଗଲା
 Save details	जानकारी सेव करें	ତଥ୍ୟ ସେଭ୍ କରନ୍ତୁ
 Only the owner can change these details.	यह जानकारी सिर्फ़ मालिक बदल सकते हैं।	ଏହି ତଥ୍ୟ କେବଳ ମାଲିକ ବଦଳାଇପାରିବେ।
-Owner	मालिक	ମାଲିକ
 GST & licences	GST और लाइसेंस	GST ଓ ଲାଇସେନ୍ସ
 Payments & bill	भुगतान और बिल	ପେମେଣ୍ଟ ଓ ବିଲ୍
 How your bill top looks	आपके बिल का ऊपरी हिस्सा ऐसा दिखेगा	ଆପଣଙ୍କ ବିଲର ଉପର ଭାଗ ଏପରି ଦେଖାଯିବ
@@ -1118,13 +1142,8 @@ This GSTIN does not pass the check	यह GSTIN जाँच में सही
 PIN code must be 6 digits.	पिन कोड 6 अंकों का होना चाहिए।	ପିନ୍ କୋଡ୍ 6 ଅଙ୍କର ହେବା ଦରକାର।
 Phone numbers need 10 digits.	फ़ोन नंबर 10 अंकों के होने चाहिए।	ଫୋନ୍ ନମ୍ବର 10 ଅଙ୍କର ହେବା ଦରକାର।
 Udhaar	उधार	ଉଧାର
-Stock	स्टॉक	ଷ୍ଟକ୍
-Buy	खरीद	କିଣା
 Money	पैसा	ଟଙ୍କା
-Light	हल्का	ହାଲୁକା
-Dark	गहरा	ଗାଢ
 Light or dark screen	हल्की या गहरी स्क्रीन	ହାଲୁକା କିମ୍ବା ଗାଢ ସ୍କ୍ରିନ୍
-Take payment	भुगतान लें	ପେମେଣ୍ଟ ନିଅନ୍ତୁ
 Units (optional)	इकाइयाँ (वैकल्पिक)	ୟୁନିଟ୍ (ଇଚ୍ଛାଧୀନ)
 Buy in a big unit, sell in a small one. Leave empty if the product has one unit.	बड़ी इकाई में खरीदें, छोटी में बेचें। एक ही इकाई हो तो खाली छोड़ें।	ବଡ଼ ୟୁନିଟ୍‌ରେ କିଣନ୍ତୁ, ଛୋଟରେ ବିକନ୍ତୁ। ଗୋଟିଏ ହିଁ ୟୁନିଟ୍ ହେଲେ ଖାଲି ଛାଡ଼ନ୍ତୁ।
 Unit 1 — biggest (e.g. Bag)	इकाई 1 — सबसे बड़ी (जैसे बोरी)	ୟୁନିଟ୍ 1 — ସବୁଠୁ ବଡ଼ (ଯେପରି ବସ୍ତା)
@@ -1136,10 +1155,7 @@ Retail and wholesale prices	खुदरा और थोक भाव	ଖୁଚ
 All prices include GST. Leave a box empty to use the automatic price.	सभी भाव GST सहित हैं। अपने-आप वाला भाव लेने के लिए खाना खाली छोड़ें।	ସବୁ ଦର GST ସହିତ। ସ୍ୱୟଂଚାଳିତ ଦର ପାଇଁ ଘର ଖାଲି ଛାଡ଼ନ୍ତୁ।
 Retail price (₹) — the Selling price above	खुदरा भाव (₹) — ऊपर वाला बिक्री भाव	ଖୁଚୁରା ଦର (₹) — ଉପରର ବିକ୍ରି ଦର
 Wholesale price (₹)	थोक भाव (₹)	ପାଇକାରୀ ଦର (₹)
-Retail	खुदरा	ଖୁଚୁରା
-Wholesale	थोक	ପାଇକାରୀ
 Wholesale rate	थोक भाव	ପାଇକାରୀ ଦର
-Show more	और दिखाएँ	ଆହୁରି ଦେଖାନ୍ତୁ
 Your GST health	आपकी GST स्थिति	ଆପଣଙ୍କ GST ସ୍ଥିତି
 Set turnover	टर्नओवर डालें	ଟର୍ଣ୍ଣଓଭର ଦିଅନ୍ତୁ
 Turnover last year (AATO)	पिछले साल का टर्नओवर (AATO)	ଗତ ବର୍ଷର ଟର୍ଣ୍ଣଓଭର (AATO)
@@ -1162,7 +1178,6 @@ How the tax is paid (order set by law)	टैक्स कैसे चुकत
 Composition	कंपोज़िशन	କମ୍ପୋଜିସନ୍
 IMS action list (Excel)	IMS काम की सूची (Excel)	IMS କାମ ତାଲିକା (Excel)
 Suppliers to call (Excel)	जिन सप्लायर को फ़ोन करना है (Excel)	ଯେଉଁ ଯୋଗାଣକାରୀଙ୍କୁ ଫୋନ୍ କରିବେ (Excel)
-Load GSTR-2B file	GSTR-2B फ़ाइल लाएँ	GSTR-2B ଫାଇଲ୍ ଆଣନ୍ତୁ
 Download all tables (one Excel)	सारी तालिकाएँ डाउनलोड करें (एक Excel)	ସବୁ ଟେବୁଲ୍ ଡାଉନଲୋଡ୍ (ଗୋଟିଏ Excel)
 Shop key (many shops on one cloud)	दुकान की चाबी (एक क्लाउड पर कई दुकानें)	ଦୋକାନ ଚାବି (ଗୋଟିଏ କ୍ଲାଉଡ୍‌ରେ ଅନେକ ଦୋକାନ)
 Create a shop key	दुकान की चाबी बनाएँ	ଦୋକାନ ଚାବି ତିଆରି କରନ୍ତୁ
@@ -1170,9 +1185,4 @@ Use this key	यह चाबी इस्तेमाल करें	ଏହି
 Offers on wholesale bills	थोक बिल पर ऑफ़र	ପାଇକାରୀ ବିଲ୍‌ରେ ଅଫର୍
 Off — wholesale price only (recommended)	बंद — केवल थोक भाव (सुझाया गया)	ବନ୍ଦ — କେବଳ ପାଇକାରୀ ଦର (ପରାମର୍ଶିତ)
 On — offers apply to wholesale bills too	चालू — थोक बिल पर भी ऑफ़र	ଚାଲୁ — ପାଇକାରୀ ବିଲ୍‌ରେ ବି ଅଫର୍
-Retail and wholesale prices	खुदरा और थोक भाव	ଖୁଚୁରା ଓ ପାଇକାରୀ ଦର
-Rule book	नियम पुस्तिका	ନିୟମ ପୁସ୍ତିକା
-Check for updates	अपडेट देखें	ଅପଡେଟ୍ ଦେଖନ୍ତୁ
-Fix first	पहले ठीक करें	ପ୍ରଥମେ ଠିକ୍ କରନ୍ତୁ
 Must do	ज़रूर करें	ନିଶ୍ଚୟ କରନ୍ତୁ
-Note	ध्यान दें	ଧ୍ୟାନ ଦିଅନ୍ତୁ

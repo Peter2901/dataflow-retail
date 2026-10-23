@@ -79,7 +79,6 @@ function ByItem({ products, batches, cfg, byProd }) {
 }
 
 function Moves({ pmap, storeId }) {
-  // Newest 300 through the ts index (a big store has lakhs of stock moves).
   const moves = useLive(() => db.stockMoves.orderBy('ts').reverse().filter(m => m.storeId === storeId).limit(300).toArray(), [storeId], null);
   return <div className="card"><Table rows={moves} cols={[
     { label: 'When', render: m => fmtDT(m.ts) }, { label: 'Item', render: m => pmap[m.productId]?.name || m.productId },

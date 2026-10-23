@@ -56,7 +56,7 @@ window.__gen = async function gen(opt) {
   const FN = ['Ravi', 'Sita', 'Amit', 'Priya', 'Rahul', 'Anita', 'Suresh', 'Kavita', 'Manoj', 'Pooja', 'Bikash', 'Sasmita', 'Prakash', 'Mamata', 'Deepak', 'Lipi'];
   const LN = ['Das', 'Mohanty', 'Sahoo', 'Patra', 'Nayak', 'Behera', 'Mishra', 'Rout', 'Swain', 'Jena', 'Panda', 'Sharma'];
   const customers = Array.from({ length: O.customers }, (_, i) => ({ id: 'C' + i, name: `${pick(FN)} ${pick(LN)} ${i}`, phone: String(7000000000 + i * 7), points: Math.floor(rnd() * 400), yearSpend: Math.round(rnd() * 60000), lifeSpend: Math.round(rnd() * 120000),
-    visits: Math.floor(rnd() * 60), lastVisit: now - Math.floor(rnd() * 120) * 864e5, createdAt: now - 400 * 864e5, creditLimit: 2000, gstin: i % 500 === 0 ? gstinOf(home, 5000 + i) : '', consentWhatsApp: true, wholesale: i % 300 === 0, updatedAt: now - 10 * 864e5 }));
+    visits: Math.floor(rnd() * 60), lastVisit: now - Math.floor(rnd() * 120) * 864e5, createdAt: now - 400 * 864e5, creditLimit: 2000, gstin: i % 500 === 0 ? gstinOf(home, 5000 + i) : '', consentWhatsApp: true, priceLevel: i % 300 === 0 ? 'wholesale' : 'retail', updatedAt: now - 10 * 864e5 }));
   await putMany('customers', customers);
   log.push(['customers', Math.round(performance.now() - t0)]);
 

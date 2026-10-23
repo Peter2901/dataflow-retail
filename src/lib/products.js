@@ -16,7 +16,9 @@ export function productErrors(p, products) {
   if (Number(p.mrp) > 0 && Number(p.price) > Number(p.mrp)) errs.push('Selling price cannot be above MRP.');
   if (p.cost !== '' && p.cost != null && Number(p.cost) > 0 && Number(p.cost) >= Number(p.price)) errs.push('Purchase rate should be below selling price.');
   // EAN/UPC numbers must pass the check digit; other codes (supplier item codes) just need to be sensible.
-  if (p.barcode && /^\d{8}$|^\d{12,14}$/.test(p.barcode) && !validEAN(p.barcode)) errs.push('Barcode check digit is wrong.');
+  // A code that came in with the store's own list (already saved) is kept as it is — it is what the packs carry.
+  const saved = p.id ? products.find(x => x.id === p.id) : null;
+  if (p.barcode && /^\d{8}$|^\d{12,14}$/.test(p.barcode) && !validEAN(p.barcode) && saved?.barcode !== p.barcode) errs.push('Barcode check digit is wrong.');
   else if (p.barcode && !/^[A-Z0-9-]{3,20}$/i.test(p.barcode)) errs.push('Barcode can only have letters, numbers and dashes.');
   if (!GST_SLABS.includes(Number(p.gst))) errs.push(`GST must be ${GST_SLABS.join(', ')}%.`);
   if (p.barcode && products.some(x => x.barcode === p.barcode && x.id !== p.id)) errs.push('Another product already has this barcode.');

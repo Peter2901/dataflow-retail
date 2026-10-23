@@ -7,27 +7,27 @@ import { r2, sum, groupBy, daysBetween, localISO, addDays } from './util.js';
 import { stockMap, daysLeft, DEFAULT_EXPIRY } from './stock.js';
 import { customerAgeing, partyBalances } from './parties.js';
 import { reorderSuggestions } from './purchasing.js';
+import { lastDays, daySumsBetween, combine } from './daysums.js';
 
 const DAY = 864e5;
 const sg = s => (s.type === 'return' ? -1 : 1);
-const salesSince = async (storeId, ts) => (await db.sales.where('ts').above(ts).toArray()).filter(s => s.storeId === storeId && s.status !== 'void');
 const productMap = async () => Object.fromEntries((await db.products.toArray()).map(p => [p.id, p]));
 const marginPct = p => { const tx = p.price / (1 + (p.gst || 0) / 100); return tx > 0 && p.cost > 0 ? (tx - p.cost) / tx : 0; };
 
-/** Qty sold per product per day over the last `days` (returns subtracted). */
+/** Qty sold per product per day over the last `days` (returns subtracted). Read from the day totals. */
 export async function salesSpeed(storeId, days = 30) {
-  const ss = await salesSince(storeId, Date.now() - days * DAY);
-  const q = {}, last = {};
-  for (const s of ss) for (const l of s.lines) { q[l.productId] = (q[l.productId] || 0) + sg(s) * l.qty; if (s.type === 'sale') last[l.productId] = Math.max(last[l.productId] || 0, s.ts); }
-  return { daily: Object.fromEntries(Object.entries(q).map(([k, v]) => [k, Math.max(0, v) / days])), last };
+  const { items } = combine(await lastDays(storeId, days));
+  const daily = {}, last = {};
+  for (const [pid, v] of Object.entries(items)) { daily[pid] = Math.max(0, v[0]) / days; if (v[3]) last[pid] = v[3]; }
+  return { daily, last };
 }
 
 // ───────────── Dead stock
 export async function deadStock(storeId, days = 60) {
   const pm = await productMap();
   const stock = await stockMap(storeId);
-  const ss = await salesSince(storeId, Date.now() - days * DAY);
-  const sold = new Set(ss.filter(s => s.type === 'sale').flatMap(s => s.lines.map(l => l.productId)));
+  const { items } = combine(await lastDays(storeId, days));
+  const sold = new Set(Object.entries(items).filter(([, v]) => v[2] > 0).map(([pid]) => pid));
   const sp30 = await salesSpeed(storeId, 30);
   const batches = (await db.batches.where('storeId').equals(storeId).toArray()).filter(b => b.status === 'active' && b.qty > 0);
   const oldest = {};
@@ -138,7 +138,6 @@ export async function festivalPlan(storeId, ahead = 45) {
   const today = new Date();
   const year = today.getFullYear();
   const out = [];
-  const allSales = await salesSince(storeId, Date.now() - 430 * DAY);
   const { daily } = await salesSpeed(storeId, 30);
   for (const f of fests) {
     const next = [f.dates[year], f.dates[year + 1]].filter(Boolean).find(d => daysBetween(today, new Date(d)) >= -1);
@@ -149,12 +148,12 @@ export async function festivalPlan(storeId, ahead = 45) {
     const items = [];
     let basis = 'usual';
     if (lastYear) {
+      // Last year's 10 days before the festival vs the 30 days before that — from the day totals.
       const end = new Date(lastYear).getTime() + DAY, start = end - 10 * DAY, baseStart = start - 30 * DAY;
-      const win = {}, base = {};
-      for (const s of allSales) {
-        if (s.ts >= start && s.ts < end) s.lines.forEach(l => (win[l.productId] = (win[l.productId] || 0) + sg(s) * l.qty));
-        else if (s.ts >= baseStart && s.ts < start) s.lines.forEach(l => (base[l.productId] = (base[l.productId] || 0) + sg(s) * l.qty));
-      }
+      const qty = list => Object.fromEntries(Object.entries(combine(list).items).map(([pid, v]) => [pid, v[0]]));
+      const span = await daySumsBetween(storeId, localISO(new Date(baseStart)), localISO(new Date(end - DAY)));
+      const win = qty(span.filter(d => new Date(d.day + 'T12:00:00').getTime() >= start));
+      const base = qty(span.filter(d => new Date(d.day + 'T12:00:00').getTime() < start));
       for (const [id, q] of Object.entries(win)) {
         const p = pm[id]; if (!p || q < 3) continue;
         const usual = ((base[id] || 0) / 30) * 10;
@@ -185,11 +184,11 @@ export async function festivalPlan(storeId, ahead = 45) {
 const RISKY = { price_override: 'Price changed', bill_cancel: 'Bills cancelled', drawer_open: 'Drawer opened without a sale' };
 export async function staffAlerts(storeId, days = 30) {
   const since = Date.now() - days * DAY;
-  const ss = await salesSince(storeId, since);
+  const { cashiers } = combine(await lastDays(storeId, days));
   const audits = (await db.audit.where('ts').above(since).toArray()).filter(a => RISKY[a.action]);
   const people = {};
   const P = n => (people[n] = people[n] || { name: n, bills: 0, returns: 0, returnValue: 0, risky: {} });
-  ss.forEach(s => { const p = P(s.cashierName || 'Unknown'); if (s.type === 'sale') p.bills++; else { p.returns++; p.returnValue = r2(p.returnValue + s.totals.payable); } });
+  Object.entries(cashiers).forEach(([who, v]) => { const p = P(who); p.bills += v[0]; p.returns += v[1]; p.returnValue = r2(p.returnValue + v[2]); });
   audits.forEach(a => { const p = P(a.userName || 'Unknown'); p.risky[a.action] = (p.risky[a.action] || 0) + 1; });
   const list = Object.values(people);
   const totalBills = sum(list, p => p.bills) || 1;
@@ -215,22 +214,27 @@ export async function staffAlerts(storeId, days = 30) {
 
 // ───────────── Customers: not seen lately, monthly ration
 export async function customerHabits(storeId) {
-  const ss = (await salesSince(storeId, Date.now() - 200 * DAY)).filter(s => s.customerId && s.type === 'sale');
-  const cm = Object.fromEntries((await db.customers.toArray()).map(c => [c.id, c]));
+  // Per customer: the days they came, what they spent, which items on which days — from the day totals.
+  const per = {};
+  for (const d of await lastDays(storeId, 200)) {
+    for (const [cid, v] of Object.entries(d.custs)) { const x = (per[cid] ||= { days: [], spend: 0, items: {} }); x.days.push(d.day); x.spend += v[1]; }
+    for (const [cid, pids] of Object.entries(d.custItems || {})) { const x = (per[cid] ||= { days: [], spend: 0, items: {} }); pids.forEach(pid => (x.items[pid] ||= new Set()).add(d.day)); }
+  }
+  const ids = Object.keys(per);
+  const cm = Object.fromEntries((await db.customers.bulkGet(ids)).filter(Boolean).map(c => [c.id, c]));
   const pm = await productMap();
   const notSeen = [], ration = [];
-  for (const [cid, bills] of Object.entries(groupBy(ss, s => s.customerId))) {
+  for (const [cid, info] of Object.entries(per)) {
     const c = cm[cid]; if (!c) continue;
-    const days = [...new Set(bills.map(b => localISO(b.ts)))].sort();
+    const days = [...new Set(info.days)].sort();
     if (days.length >= 3) {
       const gaps = days.slice(1).map((d, i) => daysBetween(new Date(days[i]), new Date(d)));
       const avgGap = sum(gaps) / gaps.length;
       const since = daysBetween(new Date(days[days.length - 1]), new Date());
-      if (since > Math.max(14, 2 * avgGap) && since < 180) notSeen.push({ customer: c, avgGap: Math.round(avgGap), since, spend: r2(sum(bills, b => b.totals.payable)), visits: days.length });
+      if (since > Math.max(14, 2 * avgGap) && since < 180) notSeen.push({ customer: c, avgGap: Math.round(avgGap), since, spend: r2(info.spend), visits: days.length });
     }
     // Same item bought on 3+ different days → its usual interval.
-    const byItem = {};
-    bills.forEach(b => b.lines.forEach(l => (byItem[l.productId] = byItem[l.productId] || new Set()).add(localISO(b.ts))));
+    const byItem = info.items;
     const due = [];
     for (const [pid, set] of Object.entries(byItem)) {
       const d = [...set].sort();
@@ -250,7 +254,7 @@ export async function customerHabits(storeId) {
 // ───────────── Udhaar recovery
 export async function udhaarPlan() {
   const ageing = await customerAgeing();
-  const cm = Object.fromEntries((await db.customers.toArray()).map(c => [c.id, c]));
+  const cm = Object.fromEntries((await db.customers.bulkGet(Object.keys(ageing))).filter(Boolean).map(c => [c.id, c]));
   const reminders = await db.audit.where('action').anyOf('udhaar_reminder', 'reminder').toArray();
   const out = [];
   for (const [cid, a] of Object.entries(ageing)) {
@@ -272,7 +276,9 @@ export async function dailySummary(storeId, at = new Date()) {
   const start = new Date(at); start.setHours(0, 0, 0, 0);
   const cut = at.getTime() - start.getTime();                       // compare up to the same time of day
   const lwStart = start.getTime() - 7 * DAY;
-  const all = await salesSince(storeId, lwStart - 1);
+  // Only today's bills and the same day last week (not the 6 days between).
+  const day = async t0 => (await db.sales.where('ts').between(t0, t0 + cut + 1, true, true).toArray()).filter(s => s.storeId === storeId && s.status !== 'void');
+  const all = [...await day(lwStart), ...await day(start.getTime())];
   const pm = await productMap();
   const pick = (from, to) => all.filter(s => s.ts >= from && s.ts < to);
   const today = pick(start.getTime(), start.getTime() + cut + 1);
@@ -287,20 +293,16 @@ export async function dailySummary(storeId, at = new Date()) {
 
 // ───────────── Weekly report
 export async function weeklyReport(storeId) {
-  const now = Date.now();
-  const all = await salesSince(storeId, now - 14 * DAY);
+  // Last 7 days (today included) vs the 7 before, from the day totals.
+  const days = await lastDays(storeId, 14);
   const pm = await productMap();
-  const wk = all.filter(s => s.ts >= now - 7 * DAY), prev = all.filter(s => s.ts < now - 7 * DAY);
-  const tot = ss => r2(sum(ss, s => sg(s) * s.totals.payable));
-  const prof = ss => r2(sum(ss, s => sg(s) * sum(s.lines, l => l.taxable - l.qty * (l.cost || 0))));
-  const items = {};
-  wk.forEach(s => s.lines.forEach(l => { items[l.productId] = items[l.productId] || { name: l.name, qty: 0, sales: 0 }; items[l.productId].qty += sg(s) * l.qty; items[l.productId].sales = r2(items[l.productId].sales + sg(s) * l.total); }));
-  const top = Object.values(items).sort((a, b) => b.sales - a.sales).slice(0, 5);
+  const wk = combine(days.slice(7)), prev = combine(days.slice(0, 7));
+  const top = Object.entries(wk.items).map(([pid, v]) => ({ name: pm[pid]?.name || pid, qty: v[0], sales: r2(v[1]) })).sort((a, b) => b.sales - a.sales).slice(0, 5);
   const cats = {};
-  wk.forEach(s => s.lines.forEach(l => { const c = pm[l.productId]?.category || 'Other'; cats[c] = r2((cats[c] || 0) + sg(s) * l.total); }));
+  Object.entries(wk.items).forEach(([pid, v]) => { const c = pm[pid]?.category || 'Other'; cats[c] = r2((cats[c] || 0) + v[1]); });
   const dues = r2(sum(Object.values(await partyBalances('cust')).filter(v => v > 0)));
   const dead = await deadStock(storeId);
-  return { sales: tot(wk), prevSales: tot(prev), profit: prof(wk), bills: wk.filter(s => s.type === 'sale').length, top, cats: Object.entries(cats).sort((a, b) => b[1] - a[1]), dues, deadValue: r2(sum(dead, d => d.value)), deadCount: dead.length };
+  return { sales: wk.total, prevSales: prev.total, profit: wk.profit, bills: wk.bills, top, cats: Object.entries(cats).sort((a, b) => b[1] - a[1]), dues, deadValue: r2(sum(dead, d => d.value)), deadCount: dead.length };
 }
 
 export function weeklyText(w, storeName) {

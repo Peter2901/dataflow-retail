@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db, setSetting } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Table, Btn, Card, Tabs, Badge, Stat, Modal, Input } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Table, Btn, Card, Tabs, Badge, Stat, Modal, Input } from '../ui/kit.jsx';
 import { inr, num, waLink, upiLink, fmtDate, uid } from '../lib/util.js';
 import { morningTodo, clearancePlan, deadStock, festivalPlan, staffAlerts, customerHabits, udhaarPlan, weeklyReport, weeklyText } from '../lib/insights.js';
 import { udhaarText, winbackText, rationText, LANGS } from '../lib/messages.js';
@@ -36,7 +36,7 @@ export default function Smart() {
 
 export function TodoList({ limit = 50 }) {
   const { storeId, go } = useApp();
-  const list = useLive(() => morningTodo(storeId), [storeId], null);
+  const list = useSlowLive(() => morningTodo(storeId), [storeId], null, 60000);
   if (!list) return <p className="muted">Working out…</p>;
   if (!list.length) return <div className="empty">Nothing urgent today.</div>;
   return (
@@ -52,8 +52,8 @@ function Todo() {
 
 function ExpiryDead() {
   const { storeId, settings, go } = useApp();
-  const plan = useLive(() => clearancePlan(storeId, settings.expiry || DEFAULT_EXPIRY), [storeId], null);
-  const dead = useLive(() => deadStock(storeId), [storeId], null);
+  const plan = useSlowLive(() => clearancePlan(storeId, settings.expiry || DEFAULT_EXPIRY), [storeId], null, 60000);
+  const dead = useSlowLive(() => deadStock(storeId), [storeId], null, 60000);
   const tone = { return: 'ok', discount: 'warn', writeoff: 'bad' };
   return (
     <div className="stack">
@@ -85,7 +85,7 @@ function Festivals() {
   const toast = useToast();
   const [ahead, setAhead] = useState(45);
   const [add, setAdd] = useState(null);
-  const plans = useLive(() => festivalPlan(storeId, ahead), [storeId, ahead, settings.festivals], null);
+  const plans = useSlowLive(() => festivalPlan(storeId, ahead), [storeId, ahead, settings.festivals], null, 60000);
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
   const draft = async f => {
     const bySup = {};
@@ -133,7 +133,7 @@ function Festivals() {
 
 function Staff() {
   const { storeId } = useApp();
-  const s = useLive(() => staffAlerts(storeId), [storeId], null);
+  const s = useSlowLive(() => staffAlerts(storeId), [storeId], null, 60000);
   if (!s) return <p className="muted">Working out…</p>;
   return (
     <div className="stack">
@@ -156,7 +156,7 @@ function Staff() {
 
 function CustomersTab({ lang }) {
   const { storeId, settings } = useApp();
-  const h = useLive(() => customerHabits(storeId), [storeId], null);
+  const h = useSlowLive(() => customerHabits(storeId), [storeId], null, 60000);
   if (!h) return <p className="muted">Working out…</p>;
   const can = c => c.phone && c.phone !== '0000000000' && c.consentWhatsApp !== false;
   return (
@@ -185,7 +185,7 @@ function CustomersTab({ lang }) {
 function Udhaar({ lang }) {
   const { settings, user } = useApp();
   const toast = useToast();
-  const plan = useLive(() => udhaarPlan(), [], null);
+  const plan = useSlowLive(() => udhaarPlan(), [], null, 60000);
   const [khata, setKhata] = useState(null);
   const [busy, setBusy] = useState('');
   const text = (u, level) => {
@@ -231,7 +231,7 @@ function Udhaar({ lang }) {
 function Weekly() {
   const { storeId, settings } = useApp();
   const toast = useToast();
-  const w = useLive(() => weeklyReport(storeId), [storeId], null);
+  const w = useSlowLive(() => weeklyReport(storeId), [storeId], null, 60000);
   const text = useMemo(() => (w ? weeklyText(w, settings.storeName) : ''), [w, settings.storeName]);
   if (!w) return <p className="muted">Working out…</p>;
   const ch = w.prevSales ? Math.round(((w.sales - w.prevSales) / w.prevSales) * 100) : null;

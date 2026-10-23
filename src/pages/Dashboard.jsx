@@ -1,8 +1,9 @@
 import React from 'react';
 import { db } from '../db.js';
-import { useApp, useLive, Stat, Card, Badge, Table, Btn, PageHead, Bar } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, Stat, Card, Badge, Table, Btn, PageHead, Bar } from '../ui/kit.jsx';
 import { LineChart } from '../ui/Chart.jsx';
-import { inr, num, r2, sum, dayStart, addDays, waLink, daysBetween, fmtDT, localISO } from '../lib/util.js';
+import { inr, num, r2, sum, dayStart, waLink, daysBetween, fmtDT, localISO } from '../lib/util.js';
+import { lastDays } from '../lib/daysums.js';
 import { expiryZone, daysLeft, stockMap, DEFAULT_EXPIRY } from '../lib/stock.js';
 import { partyBalances } from '../lib/parties.js';
 import { dailySummary } from '../lib/insights.js';
@@ -13,20 +14,15 @@ import { counterStatus } from '../lib/sync.js';
 
 export async function dashboardData(storeId, cfg) {
   const today0 = dayStart();
-  // Last 14 days only (ts index) — the trend chart needs no more.
-  const sales = await db.sales.where('ts').above(dayStart(addDays(new Date(), -14))).filter(s => s.storeId === storeId).toArray();
+  // Today's bills only; the 14-day trend and yesterday come from the day totals (daysums.js).
+  const todays = (await db.sales.where('ts').aboveOrEqual(today0).toArray()).filter(s => s.storeId === storeId);
+  const days = await lastDays(storeId, 14);
   const sign = s => (s.type === 'return' ? -1 : 1);
-  const todays = sales.filter(s => s.ts >= today0);
-  const yday = sales.filter(s => s.ts >= today0 - 86400000 && s.ts < today0);
   const total = arr => r2(sum(arr, s => sign(s) * s.totals.payable));
   const profit = arr => r2(sum(arr, s => sign(s) * sum(s.lines, l => l.taxable - l.qty * (l.cost || 0))));
   const byMode = {};
   todays.forEach(s => s.payments.forEach(p => (byMode[p.mode] = r2((byMode[p.mode] || 0) + sign(s) * p.amount))));
-  const trend = [];
-  for (let i = 13; i >= 0; i--) {
-    const d0 = dayStart(addDays(new Date(), -i)), d1 = d0 + 86400000;
-    trend.push({ label: new Date(d0).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), value: total(sales.filter(s => s.ts >= d0 && s.ts < d1)) });
-  }
+  const trend = days.map((d, i) => ({ label: new Date(d.day + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), value: i === days.length - 1 ? total(todays) : d.total }));
   const items = {};
   todays.filter(s => s.type === 'sale').forEach(s => s.lines.forEach(l => { items[l.name] = items[l.name] || { name: l.name, qty: 0, amt: 0 }; items[l.name].qty += l.qty; items[l.name].amt += l.total; }));
   const top = Object.values(items).sort((a, b) => b.amt - a.amt).slice(0, 5);
@@ -49,7 +45,7 @@ export async function dashboardData(storeId, cfg) {
   const shiftsOpen = (await db.shifts.toArray()).filter(s => !s.closedAt && s.storeId === storeId);
   void cfg; void supp;
   return {
-    sales: total(todays), bills: todays.filter(s => s.type === 'sale').length, yday: total(yday), profit: profit(todays),
+    sales: total(todays), bills: todays.filter(s => s.type === 'sale').length, yday: days[days.length - 2]?.total || 0, profit: profit(todays),
     avg: todays.length ? r2(total(todays) / Math.max(1, todays.filter(s => s.type === 'sale').length)) : 0,
     byMode, trend, top, low, exp, expired, custDue, suppDueWeek, orders, followups, shiftsOpen,
     expValue: r2(sum(exp.filter(b => b.dl >= 0), b => b.qty * b.cost)), expiredValue: r2(sum(expired, b => b.qty * b.cost)),
@@ -59,7 +55,7 @@ export async function dashboardData(storeId, cfg) {
 export default function Dashboard() {
   const { settings, storeId, go, user } = useApp();
   const cfg = settings.expiry || DEFAULT_EXPIRY;
-  const d = useLive(() => dashboardData(storeId, cfg), [storeId], null);
+  const d = useSlowLive(() => dashboardData(storeId, cfg), [storeId], null, 20000);
   if (!d) return <p className="muted">Loading…</p>;
   const change = d.yday ? Math.round(((d.sales - d.yday) / d.yday) * 100) : null;
   const summary = `*${settings.storeName} — today so far*\nSales: ${inr(d.sales)} (${d.bills} bills)\nProfit (est.): ${inr(d.profit)}\nCash ${inr(d.byMode.cash || 0)} · UPI ${inr(d.byMode.upi || 0)} · Card ${inr(d.byMode.card || 0)} · Credit ${inr(d.byMode.credit || 0)}\nExpiring in 30 days: ${d.exp.length} batches\nItems to reorder: ${d.low.length}\nCustomer dues: ${inr(d.custDue)}`;
@@ -130,7 +126,8 @@ export default function Dashboard() {
 }
 
 function FollowList({ items }) {
-  const custs = useLive(() => db.customers.toArray(), [], []);
+  const ids = (items || []).map(f => f.customerId).filter(Boolean).join(',');
+  const custs = useLive(async () => (ids ? await db.customers.bulkGet(ids.split(',')) : []).filter(Boolean), [ids], []);
   const cm = Object.fromEntries(custs.map(c => [c.id, c]));
   return <Table rows={items} empty="No follow-ups due today." cols={[
     { label: 'Customer', render: f => cm[f.customerId]?.name || '—' },
@@ -143,8 +140,8 @@ function FollowList({ items }) {
 function SmartCards() {
   const { storeId, settings, go } = useApp();
   const lang = settings.msgLang || 'en';
-  const sm = useLive(() => dailySummary(storeId), [storeId], null);
-  const counters = useLive(() => counterStatus(), [], null);
+  const sm = useSlowLive(() => dailySummary(storeId), [storeId], null, 20000);
+  const counters = useSlowLive(() => counterStatus(), [], null, 30000);
   const text = sm ? summaryText(sm, lang) : '';
   return (
     <div className="grid g2">

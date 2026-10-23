@@ -4,6 +4,9 @@
 // each other. Billing never waits for this — it runs in the background.
 import { db, SYNC_TABLES, getSettings, setSyncCounter, isSharedSetting, settingsDirty, clearSettingsDirty, markSettingsDirty } from '../db.js';
 import { uid } from './util.js';
+import { journalAccs } from '../db.js';
+import { recalcCustomer, ensureCustomerBase, addBillToCustomer } from './sales.js';
+import { touchDay } from './daysums.js';
 import SETUP_SQL_TEXT from '../../supabase/setup.sql?raw';
 
 // Who is logged in on this counter (shown in the owner app).
@@ -38,6 +41,7 @@ export const newShopKey = () => {
   const a = new Uint8Array(18); crypto.getRandomValues(a);
   return 'shop_' + Array.from(a, b => b.toString(36).padStart(2, '0')).join('').slice(0, 28);
 };
+const rid = (c, id) => (c.tag ? `${c.tag}~${id}` : String(id));
 
 async function cfg() {
   const s = await getSettings();
@@ -52,15 +56,27 @@ async function cfg() {
     phone: s.deviceMode === 'mobile',
   };
 }
-const rid = (c, id) => (c.tag ? `${c.tag}~${id}` : String(id));
+
+// Shop internet drops for a second all the time: each request is tried up to 3 times
+// (after 0.4 s and 1.5 s) before the round gives up; the next round continues where it stopped.
+async function call(url, opts = {}, tries = 3) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (res.status < 500 && res.status !== 429) return res;
+      last = res;
+    } catch (e) { last = e; }
+    if (i < tries - 1) await new Promise(r => setTimeout(r, i ? 1500 : 400));
+  }
+  if (last instanceof Error) throw last;
+  return last;
+}
 
 function headers(key, shop = '') {
   return { apikey: key, Authorization: 'Bearer ' + key, 'Content-Type': 'application/json', ...(shop ? { 'x-shop-key': shop } : {}) };
 }
 const hdr = c => headers(c.key, c.shop);
-
-// Rows changed on this device since the last push — read through the updatedAt index (fast on big data).
-const changedSince = (t, cur) => db[t].where('updatedAt').above(cur).filter(r => !r._oc);
 
 // Check the keys and that the table exists. Returns a friendly message.
 export async function testConnection() {
@@ -80,60 +96,85 @@ export async function testConnection() {
 const metaGet = async k => (await db.syncMeta.get(k))?.v ?? 0;
 const metaSet = (k, v) => db.syncMeta.put({ key: k, v });
 
-// Send this device's changed rows of one table, a page at a time (a big store's first upload has lakhs
-// of rows — never all in memory at once). The cursor only moves past rows that were really sent.
+// Rows changed on this device since the last push (index on updatedAt — never a full-table read).
+const changedSince = (t, cur) => db[t].where('updatedAt').above(cur).filter(r => !r._oc);
+
+// Rows are sent a page at a time (a big store's first upload has lakhs of rows — never all in memory).
 const PAGE = 2000;
-async function pushRows(c, t, rows) {
+async function pushRows(c, t, mine) {
+  // Customers leave with their `base` (points etc. not explained by any bill), worked out here
+  // where the row and its bills agree, so other devices can add up the bills themselves.
+  if (t === 'customers') {
+    for (let i = 0; i < mine.length; i++) if (!mine[i].base) mine[i] = (await ensureCustomerBase(mine[i].id, { force: true })) || mine[i];
+  }
   // Stock moves made before sync existed have no global id yet: give them one.
   if (t === 'stockMoves') {
-    for (const r of rows) if (!r.sid) { r.sid = c.counter + ':' + uid(); await db.stockMoves.update(r.id, { sid: r.sid }); }
+    for (const r of mine) if (!r.sid) { r.sid = c.counter + ':' + uid(); await db.stockMoves.update(r.id, { sid: r.sid }); }
   }
   // One row per (table, id) — the cloud refuses the same row twice in one request.
   const byId = new Map();
-  for (const r of rows) {
+  for (const r of mine) {
     const id = t === 'stockMoves' ? r.sid : String(r.id);
     if (!id || id === 'undefined') continue;
     byId.set(id, { table_name: t, id: rid(c, id), store_id: r.storeId || c.store, counter: c.counter, data: r, updated_at: r.updatedAt || Date.now() });
   }
-  const out = [...byId.values()];
-  for (let i = 0; i < out.length; i += 400) {
-    const res = await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
+  // Send in pieces of at most 400 rows and about 1 MB, so a slow shop connection never times out.
+  const rows = [...byId.values()];
+  let i = 0;
+  while (i < rows.length) {
+    const part = []; let bytes = 2;
+    while (i < rows.length && part.length < 400) {
+      const n = JSON.stringify(rows[i]).length + 1;
+      if (part.length && bytes + n > 900000) break;
+      part.push(rows[i]); bytes += n; i++;
+    }
+    const res = await call(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
       method: 'POST',
       headers: { ...hdr(c), Prefer: 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(out.slice(i, i + 400)),
+      body: JSON.stringify(part),
     });
     if (!res.ok) {
       let why = ''; try { why = (await res.json()).message || ''; } catch { /* ignore */ }
       throw new Error(`push ${t} ${res.status}${why ? ' — ' + why : ''}`);
     }
   }
-  return out.length;
+  return rows.length;
 }
 
 async function pushTable(c, t) {
-  let cur = await metaGet('push:' + t), sent = 0;
-  const save = async v => { if (v > cur) { cur = v; await metaSet('push:' + t, cur); } };
+  const saved = await metaGet('push:' + t);
+  let cur = saved, sent = 0, hi = saved;
   for (;;) {
-    const page = await changedSince(t, cur).limit(PAGE).toArray();
-    if (!page.length) break;
-    const lastTs = page[page.length - 1].updatedAt || 0;
-    if (page.length < PAGE) { sent += await pushRows(c, t, page); await save(lastTs); break; }
-    // A full page: send the rows before the last time stamp (the rest come next round, so none is skipped).
-    const before = page.filter(r => (r.updatedAt || 0) < lastTs);
-    if (before.length) { sent += await pushRows(c, t, before); await save(before[before.length - 1].updatedAt || 0); continue; }
-    // The whole page has one time stamp ("send everything"): send that stamp's rows page by page.
-    for (let o = 0; ; o += PAGE) {
-      const grp = await db[t].where('updatedAt').equals(lastTs).filter(r => !r._oc).offset(o).limit(PAGE).toArray();
-      if (!grp.length) break;
-      sent += await pushRows(c, t, grp);
-      if (grp.length < PAGE) break;
+    let mine = await changedSince(t, cur).limit(PAGE).toArray();
+    if (!mine.length) break;
+    const full = mine.length === PAGE;
+    if (full) {
+      const lastTs = mine[mine.length - 1].updatedAt || 0;
+      const before = mine.filter(r => (r.updatedAt || 0) < lastTs);
+      if (before.length) mine = before;          // the rest (same last time stamp) comes in the next page
+      else {                                    // a whole page with one time stamp (bulk import): send that stamp page by page
+        for (let o = 0; ; o += PAGE) {
+          const grp = await db[t].where('updatedAt').equals(lastTs).filter(r => !r._oc).offset(o).limit(PAGE).toArray();
+          if (!grp.length) break;
+          sent += await pushRows(c, t, grp);
+          if (grp.length < PAGE) break;
+        }
+        cur = hi = Math.max(hi, lastTs);
+        await metaSet('push:' + t, Math.max(saved, Math.min(hi, Date.now() - 3000)));
+        continue;
+      }
     }
-    await save(lastTs);
+    sent += await pushRows(c, t, mine);
+    for (const r of mine) if ((r.updatedAt || 0) > hi) hi = r.updatedAt;
+    cur = hi;
+    // The saved mark stays 3 s behind: a bill saved in the same instant (or still being written) is
+    // sent again next round instead of being skipped — sending a row twice is harmless.
+    await metaSet('push:' + t, Math.max(saved, Math.min(hi, Date.now() - 3000)));
+    if (!full) break;
   }
-  // Nothing of ours is left to send: move the cursor past the rows that came from other devices, so later
-  // rounds do not read them again (only up to 5 s ago by this device's clock — our own new rows are newer).
-  const top = await db[t].orderBy('updatedAt').lastKey();
-  if (top) await save(Math.min(top, Date.now() - 5000));
+  // Nothing of ours to send: move the mark up anyway (3 s behind), so the next round only looks at
+  // rows changed since then — a counter that joined later must not re-read whole tables every round.
+  if (!sent) { const to = Date.now() - 3000; if (to > saved) await metaSet('push:' + t, to); }
   return sent;
 }
 
@@ -142,7 +183,7 @@ async function pushSettings(c) {
   const at = settingsDirty();
   if (!at) return;
   const values = Object.fromEntries((await db.settings.toArray()).filter(r => isSharedSetting(r.key)).map(r => [r.key, r.value]));
-  const res = await fetch(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
+  const res = await call(`${c.url}/rest/v1/records?on_conflict=table_name,id`, {
     method: 'POST', headers: { ...hdr(c), Prefer: 'resolution=merge-duplicates,return=minimal' },
     body: JSON.stringify([{ table_name: 'storeSettings', id: rid(c, c.store), store_id: c.store, counter: c.counter, data: { values, at }, updated_at: at }]),
   });
@@ -151,35 +192,58 @@ async function pushSettings(c) {
 }
 
 async function applyRow(c, row) {
-  if (row.counter === c.counter) return;          // our own row coming back
   const d = row.data || {};
+  // Our own rows coming back are skipped — except on a device that is being set up again
+  // (a replaced counter PC), which takes its own old bills and stock history back.
+  const own = row.counter === c.counter;
+  if (own && !c.restoring) return;
   if (row.table_name === 'storeSettings') {
+    if (own) return;
     for (const [k, v] of Object.entries(d.values || {})) if (isSharedSetting(k)) await db.settings.put({ key: k, value: v });
     return;
   }
   if (row.table_name === 'stockMoves') {
-    const sid = row.id;
+    const sid = d.sid || row.id;          // the move's own id (the cloud row id may carry the shop tag)
     if (await db.appliedMoves.get(sid)) return;
-    if (d.batchId) {
-      const b = await db.batches.get(d.batchId);
-      if (b) await db.batches.update(d.batchId, { qty: r3(b.qty + d.qty), _mv: row.seq });
-    }
-    // The sender's local row number (id) means nothing here — two counters both number their own moves 1, 2, 3…
-    // Keeping it made the second counter's moves clash ("Key already exists") and stopped the sync. sid is the real id.
-    const { id: _localId, ...move } = d;   // eslint-disable-line no-unused-vars
-    await db.stockMoves.add({ ...move, _oc: row.counter, _seq: row.seq });
-    await db.appliedMoves.put({ sid });
+    // Our own move coming back: normally already here. After a counter PC is replaced it is not,
+    // and then it is added like any other, so the new PC gets its old stock history back.
+    if (own && await db.stockMoves.where('sid').equals(sid).count()) return;
+    await db.transaction('rw', db.batches, db.stockMoves, db.appliedMoves, async () => {
+      if (await db.appliedMoves.get(sid)) return;
+      if (d.batchId) await db.batches.where('id').equals(d.batchId).modify(b => { b.qty = r3(b.qty + d.qty); b._mv = row.seq; });
+      const { id: _drop, ...m } = d;
+      void _drop;
+      await db.stockMoves.add({ ...m, sid, _oc: row.counter, _seq: row.seq });   // its own row number here, never the sender's
+      await db.appliedMoves.put({ sid });
+    });
     return;
   }
   const table = db[row.table_name];
   if (!table) return;
   const existing = await table.get(d.id);
+  if (own && existing) return;                          // our own row coming back
   if (existing && existing._seq === row.seq) return;    // this exact version is already here
   if (row.table_name === 'batches') {
     // Quantity always comes from stock moves, never from another counter's copy.
     const qty = existing ? existing.qty
       : r3((await db.stockMoves.where('batchId').equals(d.id).toArray()).reduce((a, m) => a + (Number(m.qty) || 0), 0));
     await db.batches.put({ ...d, qty, _oc: row.counter, _seq: row.seq });
+    return;
+  }
+  if (row.table_name === 'journal') { await table.put({ ...d, accs: journalAccs(d), _oc: row.counter, _seq: row.seq }); return; }
+  if (row.table_name === 'customers') {
+    // Points / spend / visits come from the bills on this device (see recalcCustomer), not from
+    // whichever counter saved the customer last.
+    const keep = existing ? { points: existing.points, yearSpend: existing.yearSpend, lifeSpend: existing.lifeSpend, visits: existing.visits, lastVisit: existing.lastVisit } : {};
+    await table.put({ ...d, ...keep, ...(existing?.base && !d.base ? { base: existing.base } : {}), _oc: row.counter, _seq: row.seq });
+    // Add up the bills again only when the starting point changed (new customer, or base edited).
+    if (d.base && JSON.stringify(d.base) !== JSON.stringify(existing?.base)) await recalcCustomer(d.id);
+    return;
+  }
+  if (row.table_name === 'sales' && !existing && d.ts) await touchDay(d.storeId || c.store, d.ts);   // a late bill for a past day
+  if (row.table_name === 'sales' && d.customerId && !existing) {
+    await table.put({ ...d, _oc: row.counter, _seq: row.seq });
+    await addBillToCustomer(d.customerId, d);
     return;
   }
   await table.put({ ...d, _oc: row.counter, _seq: row.seq });
@@ -189,19 +253,24 @@ async function applyRow(c, row) {
 // was offline for hours still delivers every bill when it reconnects. Each tick
 // re-reads the previous tick's rows once, to catch a save that was still in flight.
 async function pull(c) {
+  c = { ...c, restoring: !!(await metaGet('restoring')) };
   const prevHi = await metaGet('pullPrevHi');
   let cur = await metaGet('pullCur');
   let hi = Math.max(prevHi, cur), pages = 0, more = false, n = 0;
   while (pages < 10) {
     const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&table_name=neq.counter_status&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,counter,data,seq`;
-    const res = await fetch(url, { headers: hdr(c) });
+    const res = await call(url, { headers: hdr(c) });
     if (!res.ok) throw new Error('pull ' + res.status);
     const rows = await res.json();
-    // One transaction per page: much faster, and screens refresh once per page instead of once per row.
-    status.step = `receive ${rows.length} rows`;
-    await db.transaction('rw', db.tables, async () => {
-      for (const row of rows) { await applyRow(c, row); if (row.seq > hi) hi = row.seq; }
-    });
+    // 50 rows per database write: a new phone downloads a big store quickly, and a bill being
+    // saved at the counter never waits long behind the sync.
+    for (let i = 0; i < rows.length; i += 50) {
+      const part = rows.slice(i, i + 50);
+      await db.transaction('rw', [...SYNC_TABLES.map(t => db[t]), db.settings, db.appliedMoves, db.daySums], async () => {
+        for (const row of part) await applyRow(c, row);
+      });
+      for (const row of part) if (row.seq > hi) hi = row.seq;
+    }
     n += rows.length; pages++;
     if (rows.length < 1000) { more = false; break; }
     more = true; cur = rows[rows.length - 1].seq;
@@ -225,12 +294,9 @@ async function heartbeat(c, force = false) {
   });
 }
 
-async function countPending(c) {
+async function countPending() {
   let n = 0;
-  for (const t of SYNC_TABLES) {
-    const cur = await metaGet('push:' + t);
-    n += await changedSince(t, cur).count();
-  }
+  for (const t of SYNC_TABLES) n += await changedSince(t, await metaGet('push:' + t)).count();
   return n;
 }
 
@@ -244,12 +310,13 @@ export async function syncOnce() {
     status.step = 'settings'; await pushSettings(c);
     for (const t of SYNC_TABLES) { status.step = 'send ' + t; await pushTable(c, t); }
     status.step = 'receive'; await pull(c);
-    status.step = 'count'; status.pending = await countPending(c);
+    status.step = 'count'; status.pending = await countPending();
     status.step = 'heartbeat'; if (!c.phone) await heartbeat(c);          // phones are not counters
     status.step = '';
     status.lastSync = Date.now(); status.error = '';
   } catch (e) {
     status.error = String(e.message || e);
+    try { status.pending = await countPending(); } catch { /* ignore */ }   // never show "all sent" when it isn't
   } finally {
     running = false; status.busy = false; emit();
   }
@@ -258,9 +325,11 @@ export async function syncOnce() {
 // Stamp every local row as new so this counter seeds the shared database once.
 export async function pushEverything() {
   markSettingsDirty();
+  // Sending everything again = start each table's "sent up to" mark from zero. Only rows from very
+  // old versions without a time stamp are touched; nothing else is rewritten (fast on big stores).
   const now = Date.now();
   for (const t of SYNC_TABLES) {
-    await db[t].toCollection().modify(r => { if (!r._oc) r.updatedAt = now; });
+    await db[t].filter(r => !r.updatedAt && !r._oc).modify(r => { r.updatedAt = now; });
     await metaSet('push:' + t, 0);
   }
   await syncOnce();
@@ -316,6 +385,7 @@ export async function connectDevice({ url, key, store, name, shop = '' }, { term
   await put('syncUrl', url); await put('syncKey', key); await put('syncEnabled', true); if (shop) await put('shopKey', shop);
   await put('currentStore', store); await put('terminal', terminal); await put('deviceMode', deviceMode);
   await put('storeName', name || 'My store'); await put('sampleData', false); await put('stateCode', '');
+  await metaSet('restoring', 1);
   await syncOnce();
 }
 
@@ -324,7 +394,7 @@ export async function pullUntilQuiet(maxRounds = 30, onRound) {
     const c = await cfg();
     const n = await pull(c);
     onRound?.(i, n);
-    if (n < 1000) break;
+    if (n < 1000) { await metaSet('restoring', 0); break; }
   }
 }
 

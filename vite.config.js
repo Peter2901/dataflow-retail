@@ -12,11 +12,11 @@ export default defineConfig(({ mode }) => ({
   base: './',
   build: {
     chunkSizeWarningLimit: 4000,
-    outDir: mode === 'owner' ? 'dist-owner' : mode === 'mobile' ? 'dist-mobile' : 'dist',
+    outDir: mode === 'owner' ? 'dist-owner' : mode === 'mobile' ? 'dist-mobile' : mode === 'stress' ? 'dist-stress' : 'dist',
     rollupOptions: {
       input: mode === 'owner'
         ? { owner: page('./owner.html') }
-        : mode === 'mobile' ? { main: page('./index.html') }
+        : mode === 'mobile' || mode === 'stress' ? { main: page('./index.html') }
         : { main: page('./index.html'), owner: page('./owner.html') },
     },
   },

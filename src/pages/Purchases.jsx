@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card, Tabs, Stat } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card, Tabs, Stat } from '../ui/kit.jsx';
 import { inr, num, r2, sum, uid, validGSTIN, waLink, daysBetween, fmtDate } from '../lib/util.js';
 import { reorderSuggestions, createPO, paySupplier } from '../lib/purchasing.js';
 import { poTextLang, LANGS } from '../lib/messages.js';
@@ -54,7 +54,7 @@ function Orders({ onReceive }) {
   const { storeId, settings, user } = useApp();
   const toast = useToast();
   const cfg = settings.expiry || DEFAULT_EXPIRY;
-  const sugg = useLive(() => reorderSuggestions(storeId, cfg), [storeId], null);
+  const sugg = useSlowLive(() => reorderSuggestions(storeId, cfg), [storeId], null, 60000);
   const pos = useLive(() => db.purchaseOrders.orderBy('date').reverse().toArray(), [], []);
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
   const sm = Object.fromEntries(suppliers.map(s => [s.id, s]));

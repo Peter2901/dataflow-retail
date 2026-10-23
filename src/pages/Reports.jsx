@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Table, Btn, Tabs, Card, Stat, Badge, Input } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Table, Btn, Tabs, Card, Stat, Badge, Input } from '../ui/kit.jsx';
 import { inr, num, r2, sum, groupBy, todayISO, fmtDT, uid, waLink, daysBetween, localISO } from '../lib/util.js';
 import { exportRows } from '../lib/excel.js';
 import { stockMap, daysLeft } from '../lib/stock.js';
@@ -27,15 +27,15 @@ export default function Reports() {
   const [tab, setTab] = useState('sales');
   const now = new Date();
   const [p, setP] = useState({ from: localISO(new Date(now.getFullYear(), now.getMonth(), 1)), to: todayISO() });
-  // Only the chosen dates are read (ts index) — a big store has lakhs of bills.
-  const from = new Date(p.from).setHours(0, 0, 0, 0), to = new Date(p.to).setHours(23, 59, 59, 999);
-  const sales = useLive(() => db.sales.where('ts').between(from, to, true, true).filter(s => s.storeId === storeId).toArray(), [storeId, from, to], []);
-  const inP = useMemo(() => sales.filter(s => inRange(s.ts, p)), [sales, p]);
+  // Only the chosen period is read (by date), however many years of bills the store has.
+  const sales = useSlowLive(async () => (await db.sales.where('ts').between(new Date(p.from).setHours(0, 0, 0, 0), new Date(p.to).setHours(23, 59, 59, 999), true, true).toArray()).filter(s => s.storeId === storeId), [storeId, p.from, p.to], null, 30000);
+  const inP = useMemo(() => (sales || []).filter(s => inRange(s.ts, p)), [sales, p]);
   return (
     <div className="stack">
       <PageHead title="Reports" sub="Every report exports to Excel. GST tables follow the GSTR-1 and GSTR-3B layout." />
       <Tabs value={tab} onChange={setTab} tabs={[{ value: 'sales', label: 'Sales' }, { value: 'items', label: 'Items & profit' }, { value: 'gstr1', label: 'GSTR-1' }, { value: 'gstr3b', label: 'GSTR-3B' }, { value: 'stock', label: 'Stock' }, { value: 'shifts', label: 'Cashier shifts' }, { value: 'builder', label: 'Build your own' }]} />
       {tab !== 'stock' && <Period value={p} onChange={setP} />}
+      {!sales && !['stock', 'shifts'].includes(tab) && <p className="muted">Loading…</p>}
       {tab === 'sales' && <SalesRep sales={inP} />}
       {tab === 'items' && <ItemsRep sales={inP} />}
       {tab === 'gstr1' && <Gstr1 sales={inP} p={p} />}

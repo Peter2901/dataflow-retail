@@ -53,7 +53,7 @@ function List({ customers, dues, canSeePhone, onOpen }) {
       <div className="row gap-s wrap"><SearchBox value={q} onChange={setQ} placeholder="Search name or mobile" />
         <select className="input" style={{ width: 200 }} value={seg} onChange={e => setSeg(e.target.value)} aria-label="Segment"><option value="">All groups</option>{segs.map(s => <option key={s} value={s}>{segment({ champ: { lastVisit: Date.now(), visits: 20 }, loyal: { lastVisit: Date.now(), visits: 5 }, reg: { lastVisit: Date.now(), visits: 1 }, risk: { lastVisit: Date.now() - 40 * 864e5 }, sleep: { lastVisit: Date.now() - 90 * 864e5 }, new: { createdAt: Date.now() } }[s]).label} ({count(s)})</option>)}</select></div>
       <div className="card"><Table rows={rows} onRow={onOpen} cols={[
-        { label: 'Customer', render: c => <><b>{c.name}</b><div className="small muted">{canSeePhone ? c.phone : maskPhone(c.phone)}{c.gstin ? ' · B2B' : ''}{c.wholesale ? ' · Wholesale' : ''}</div></> },
+        { label: 'Customer', render: c => <><b>{c.name}</b><div className="small muted">{canSeePhone ? c.phone : maskPhone(c.phone)}{c.gstin ? ' · B2B' : ''}{c.priceLevel === 'wholesale' ? ' · Wholesale' : ''}</div></> },
         { label: 'Tier', render: c => <Badge tone={c.tier.key === 'Platinum' ? 'accent' : c.tier.key === 'Gold' ? 'warn' : 'neutral'}>{c.tier.key}</Badge> },
         { label: 'Group', render: c => <Badge tone={c.seg.tone}>{c.seg.label}</Badge> },
         { label: 'Spend this year', num: true, render: c => inr(c.yearSpend || 0, 0) },
@@ -81,7 +81,11 @@ function Detail({ c: init, due, canSeePhone, onClose }) {
     if (ph.length !== 10) return toast('Mobile number must have 10 digits.', 'bad');
     if (c.gstin && !validGSTIN(c.gstin)) return toast('GSTIN does not pass the check.', 'bad');
     const rec = { ...c, phone: ph, creditLimit: Number(c.creditLimit) || 0, id: c.id || uid('c_'), createdAt: c.createdAt || Date.now(), points: c.points || 0, yearSpend: c.yearSpend || 0, visits: c.visits || 0 };
-    await db.customers.put(rec);
+    // Points, spend and visits come from the bills (they may have changed while this was open): keep the saved ones.
+    const DERIVED = ['points', 'yearSpend', 'lifeSpend', 'visits', 'lastVisit', 'base'];
+    const details = Object.fromEntries(Object.entries(rec).filter(([k]) => !DERIVED.includes(k)));
+    if (c.id && await db.customers.get(c.id)) await db.customers.update(c.id, details);
+    else await db.customers.put(rec);
     toast('Customer saved.'); onClose();
   };
   const erase = async () => {
@@ -101,11 +105,11 @@ function Detail({ c: init, due, canSeePhone, onClose }) {
           <Input label="Name" value={c.name} onChange={e => setC({ ...c, name: e.target.value })} id="c-name" />
           <Input label="Mobile" value={canSeePhone || !init.id ? c.phone : maskPhone(c.phone)} disabled={!canSeePhone && !!init.id} onChange={e => setC({ ...c, phone: e.target.value })} id="c-phone" />
           <Input label="Credit (udhaar) limit ₹" type="number" value={c.creditLimit} onChange={e => setC({ ...c, creditLimit: e.target.value })} id="c-limit" />
+          <Select label="Rate for this customer" value={c.priceLevel || 'retail'} disabled={user.role === 'cashier'} onChange={e => setC({ ...c, priceLevel: e.target.value })} options={[{ value: 'retail', label: 'Retail' }, { value: 'wholesale', label: 'Wholesale' }]} id="c-level" hint="Shops buying in bulk get the Wholesale rate automatically at the counter" />
           <Input label="GSTIN (business customers)" value={c.gstin} onChange={e => setC({ ...c, gstin: e.target.value.toUpperCase() })} id="c-gstin" />
         </div>
         <Input label="Notes" value={c.notes || ''} onChange={e => setC({ ...c, notes: e.target.value })} id="c-notes" />
         <label className="check"><input type="checkbox" checked={!!c.consentWhatsApp} onChange={e => setC({ ...c, consentWhatsApp: e.target.checked })} /> Agrees to get bills and offers on WhatsApp</label>
-        <label className="check"><input type="checkbox" checked={!!c.wholesale} disabled={user.role === 'cashier'} onChange={e => setC({ ...c, wholesale: e.target.checked })} /> Wholesale customer — bills switch to wholesale prices on their own{user.role === 'cashier' ? ' (owner or manager can change this)' : ''}</label>
       </div>}
       {tab === 'bills' && <Table rows={sales} cols={[{ label: 'Bill', key: 'no' }, { label: 'When', render: s => fmtDT(s.ts) }, { label: 'Items', num: true, render: s => s.lines.length }, { label: 'Amount', num: true, render: s => (s.type === 'return' ? '−' : '') + inr(s.totals.payable) }, { label: 'Paid by', render: s => s.payments.map(p => p.mode).join(' + ') }]} />}
       {tab === 'points' && <Table rows={pts} cols={[{ label: 'When', render: t => fmtDT(t.ts) }, { label: 'Type', key: 'type' }, { label: 'Bill', key: 'ref' }, { label: 'Points', num: true, render: t => (t.points > 0 ? '+' : '') + t.points }]} empty="No points yet." />}

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { db, setSetting } from '../db.js';
 import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Card, Stat, Badge, Tabs, Input } from '../ui/kit.jsx';
-import { readSheet, mapProducts, checkProducts, templateFile } from '../lib/excel.js';
+import { readSheet, mapAnyProducts, checkProducts, templateFile, exportRows } from '../lib/excel.js';
+import { suggestHsnGst } from '../lib/productTools.js';
+import { getStatus as getSyncStatus, onSyncStatus } from '../lib/sync.js';
+import { BLANK_PRODUCT } from '../lib/products.js';
+import { unitList, retailUnitPrice, wholesaleUnitPrice, plain } from '../lib/units.js';
+import { addBatch } from '../lib/stock.js';
 import { post, partyAccount } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
 import { inr, r2, sum, uid, todayISO, download, validEAN } from '../lib/util.js';
@@ -28,68 +33,120 @@ function ImportProducts() {
   const [res, setRes] = useState(null);
   const [file, setFile] = useState('');
   const [cols, setCols] = useState({});
+  const [layout, setLayout] = useState('');
   const [show, setShow] = useState('errors');
   const [busy, setBusy] = useState(false);
   const load = async e => {
     const f = e.target.files?.[0]; if (!f) return;
-    const { rows } = await readSheet(f);
-    const { mapped, columns } = mapProducts(rows);
-    const existing = await db.products.toArray();
-    setRes(checkProducts(mapped, existing)); setCols(columns); setFile(f.name);
+    e.target.value = '';
+    setBusy(true);
+    try {
+      const { rows, sheet } = await readSheet(f);
+      const { mapped, columns, layout } = mapAnyProducts(rows);
+      const existing = await db.products.toArray();
+      // HSN hints for items without a real HSN (built-in list and your own products; GST is never changed for you).
+      for (const r of mapped) if (!r.hsn) { const h = await suggestHsnGst(r.name, existing).catch(() => null); if (h?.hsn) r.hsnHint = h.hsn; }
+      setRes(checkProducts(mapped, existing)); setCols(columns); setFile(`${f.name} › ${sheet}`); setLayout(layout);
+      setShow('warn');
+    } catch (err) {
+      toast('Could not read that file: ' + (err.message || err), 'bad');
+    } finally { setBusy(false); }
+  };
+  const useHints = () => {
+    let n = 0;
+    const rows = res.rows.map(r => {
+      if (r.hsn || !r.hsnHint) return r;
+      n++;
+      return { ...r, hsn: r.hsnHint, warnings: r.warnings.filter(w => !w.includes('HSN')).concat(`HSN ${r.hsnHint} filled from the name — check the GST rate`) };
+    });
+    setRes({ ...res, rows });
+    toast(`Suggested HSN filled for ${n} items. GST rates were not changed.`);
   };
   // Saves in big batches inside one transaction: fast for 20,000+ products, and all-or-nothing.
   const importGood = async () => {
     setBusy(true);
-    const good = res.rows.filter(r => !r.errors.length);
-    let value = 0;
-    const today = todayISO(), now = Date.now();
-    const prods = [], bats = [], moves = [];
-    for (const r of good) {
-      const id = r.id || 'SKU' + uid('').slice(-7).toUpperCase() + prods.length.toString(36).toUpperCase();
-      prods.push({ id, barcode: r.barcode, name: r.name, ...(r.localName ? { localName: r.localName } : {}), category: r.category, subCategory: r.subCategory, brand: r.brand, uom: r.uom, packSize: r.packSize, hsn: r.hsn, gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack, ...(r.units ? { units: r.units } : {}), ...(r.prices ? { prices: r.prices } : {}), ...(r.wholesale ? { wholesale: r.wholesale } : {}), rack: r.rack, reorderMin: r.reorderMin, reorderMax: r.reorderMax, vendorId: r.vendorId, plu: r.plu, loose: r.loose, batchTracked: true, active: true });
-      if (r.openingStock > 0) {
-        const bid = uid('b_');
-        bats.push({ id: bid, productId: id, storeId, batchNo: r.batchNo || 'OPENING', mfg: null, expiry: r.expiry || null, qty: r.openingStock, cost: Number(r.cost) || 0, mrp: r.mrp || null, status: r.expiry && r.expiry < today ? 'quarantine' : 'active', receivedAt: now });
-        moves.push({ ts: now, productId: id, batchId: bid, storeId, qty: r.openingStock, type: 'purchase', ref: 'IMPORT', note: '' });
-        value += r.openingStock * r.cost;
-      }
-    }
     try {
+      const good = res.rows.filter(r => !r.errors.length);
+      const existing = Object.fromEntries((await db.products.toArray()).map(p => [p.id, p]));
+      let plu = Math.max(10000, ...Object.values(existing).map(p => Number(p.plu) || 0));
+      const prods = [], batches = [], moves = [];
+      let value = 0, added = 0, updated = 0;
+      const now = Date.now();
+      for (const r of good) {
+        const old = r.existingId ? existing[r.existingId] : null;
+        const id = old?.id || r.id || 'SKU' + uid('').slice(-8).toUpperCase();
+        const rec = {
+          ...(old || BLANK_PRODUCT), id, barcode: r.barcode || old?.barcode || '', name: r.name, category: r.category, brand: r.brand || old?.brand || '',
+          uom: r.uom, hsn: r.hsn || old?.hsn || '', gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack || 1,
+          loose: !!r.loose, batchTracked: true, active: true,
+          ...(r.localName ? { localName: r.localName } : {}), ...(r.subCategory ? { subCategory: r.subCategory } : {}),
+          ...(r.rack ? { rack: r.rack } : {}), ...(r.reorderMin ? { reorderMin: r.reorderMin } : {}), ...(r.reorderMax ? { reorderMax: r.reorderMax } : {}),
+          ...(r.vendorId ? { vendorId: r.vendorId } : {}), ...(r.packSize ? { packSize: r.packSize } : {}),
+        };
+        // Units (Bag / Pcs, Kg / Gram) and retail / wholesale prices per unit (units.js).
+        if (r.units) rec.units = r.units;
+        if (r.prices) rec.prices = r.prices;
+        if (r.wholesale) rec.wholesale = r.wholesale;
+        if (r.godown) rec.godown = r.godown;
+        if (r.plu) rec.plu = r.plu; else if (rec.loose && !rec.plu) rec.plu = String(++plu);
+        delete rec.sample;
+        prods.push(rec);
+        if (old) { updated++; continue; }
+        added++;
+        if (r.openingStock > 0) {
+          const bid = uid('b_');
+          const expired = r.expiry && r.expiry < todayISO();
+          batches.push({ id: bid, productId: id, storeId, batchNo: r.batchNo || 'OPENING', mfg: null, expiry: r.expiry || null, qty: r.openingStock, cost: r.cost || 0, mrp: r.mrp || null, status: expired ? 'quarantine' : 'active', receivedAt: now });
+          moves.push({ ts: now, productId: id, batchId: bid, storeId, qty: r.openingStock, type: 'purchase', ref: 'IMPORT', note: 'Opening stock' });
+          value += r.openingStock * (r.cost || 0);
+        }
+      }
       await db.transaction('rw', db.products, db.batches, db.stockMoves, async () => {
-        for (let i = 0; i < prods.length; i += 2000) await db.products.bulkPut(prods.slice(i, i + 2000));
-        for (let i = 0; i < bats.length; i += 2000) await db.batches.bulkAdd(bats.slice(i, i + 2000));
-        for (let i = 0; i < moves.length; i += 2000) await db.stockMoves.bulkAdd(moves.slice(i, i + 2000));
+        await db.products.bulkPut(prods);
+        if (batches.length) await db.batches.bulkAdd(batches);
+        if (moves.length) await db.stockMoves.bulkAdd(moves);
       });
-    } catch (e) { toast('Nothing was loaded: ' + e.message, 'bad'); setBusy(false); return; }
-    if (value) await post({ ref: 'IMPORT', type: 'opening', narration: `Opening stock from ${file}`, lines: [{ acc: 'inventory', dr: r2(value) }, { acc: 'capital', cr: r2(value) }] });
-    await audit('import', { file, products: good.length, value: r2(value) }, user);
-    toast(`${good.length} products loaded with ${inr(value, 0)} of opening stock.`);
-    setRes(null); setBusy(false);
+      if (value) await post({ ref: 'IMPORT', type: 'opening', narration: `Opening stock from ${file}`, lines: [{ acc: 'inventory', dr: r2(value) }, { acc: 'capital', cr: r2(value) }] });
+      await audit('import', { file, added, updated, value: r2(value) }, user);
+      toast(`${added} new products loaded${updated ? `, ${updated} updated` : ''}, with ${inr(value, 0)} of opening stock.`);
+      setRes(null);
+    } catch (err) {
+      toast('Loading stopped: ' + (err.message || err), 'bad');
+    } finally { setBusy(false); }
   };
   const rows = res ? res.rows.filter(r => show === 'all' || (show === 'errors' ? r.errors.length : !r.errors.length && r.warnings.length)) : [];
+  const hints = res ? res.rows.filter(r => !r.hsn && r.hsnHint).length : 0;
+  // "₹49 (MRP 49) · W ₹47.5 · Bag×10 ₹490 (W ₹475)"
+  const price = r => {
+    const L = unitList(r), base = L.find(u => u.base);
+    const w = base ? wholesaleUnitPrice(r, base.i) : r.wholesale;
+    return <>₹{r.price}{base ? `/${base.name}` : r.uom === 'KG' ? '/kg' : ''} (MRP {r.mrp}){w && w !== r.price ? ` · W ₹${plain(w, 2)}` : ''}{L.filter(u => !u.base).map(u => <span key={u.i}> · {u.name}×{plain(u.factor)} ₹{plain(retailUnitPrice(r, u.i), 2)} (W ₹{plain(wholesaleUnitPrice(r, u.i), 2)})</span>)}</>;
+  };
   return (
     <div className="stack">
       <Card title="Load the product Excel">
-        <p className="small muted">Works with the 'Sameer Excel Final 15OCT.xlsx' layout (SKU_CODE, BARCODE_EAN, ITEM_NAME … GST_RATE_PCT, PURCHASE_RATE, MRP, SELLING_PRICE, OPENING_STOCK, RACK_LOCATION) and similar sheets. Add BATCH_NO and EXPIRY_DATE columns to load expiry for opening stock. Nothing is saved until you press Load.</p>
+        <p className="small muted">Reads billing-software item masters (like Sameer’s sheet: Product*, Packing, Unit-1, Conversion, Retail, wholesale, Godown Rate, Exp. Date) and simple lists (SKU_CODE, BARCODE_EAN, ITEM_NAME, GST_RATE_PCT, MRP, SELLING_PRICE, OPENING_STOCK). Pack prices, wholesale rates, loose items by kg and messy dates are understood. Nothing is saved until you press Load.</p>
         <div className="row gap-s wrap" style={{ marginTop: 10 }}>
-          <label className="btn btn-primary">Choose Excel file<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={load} /></label>
+          <label className="btn btn-primary">{busy && !res ? 'Reading…' : 'Choose Excel file'}<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={load} disabled={busy} /></label>
           <Btn onClick={templateFile}>Download a template</Btn>
         </div>
       </Card>
       {res && <>
         <div className="grid g4">
-          <Stat label="Ready to load" value={res.ok} tone="ok" />
+          <Stat label="Ready to load" value={res.ok} tone="ok" sub={res.updates ? `${res.updates} already in the system (update)` : ''} />
           <Stat label="With errors (skipped)" value={res.withErrors} tone={res.withErrors ? 'bad' : undefined} />
-          <Stat label="With warnings" value={res.withWarnings} tone={res.withWarnings ? 'warn' : undefined} />
-          <Stat label="Old GST rate (12% / 28%)" value={res.gstOld} tone={res.gstOld ? 'bad' : undefined} sub={res.gstOld ? 'Fix in Excel: now 5%, 18% or 40%' : ''} />
+          <Stat label="Load, but please check" value={res.withWarnings} tone={res.withWarnings ? 'warn' : undefined} />
+          <Stat label="Sold in packs / loose by kg" value={`${res.rows.filter(r => r.units && !r.loose).length} / ${res.rows.filter(r => r.loose).length}`} sub={`${res.rows.filter(r => r.wholesale || r.prices?.w?.some(Boolean)).length} with wholesale rate`} />
         </div>
-        <Card title={`Checked: ${file}`} actions={<><Btn size="sm" kind={show === 'errors' ? 'primary' : 'default'} onClick={() => setShow('errors')}>Errors</Btn><Btn size="sm" kind={show === 'warn' ? 'primary' : 'default'} onClick={() => setShow('warn')}>Warnings</Btn><Btn size="sm" kind={show === 'all' ? 'primary' : 'default'} onClick={() => setShow('all')}>All</Btn></>}>
-          <p className="small muted" style={{ marginBottom: 8 }}>Columns found: {Object.entries(cols).map(([k, v]) => `${v} → ${k}`).join(' · ')}</p>
-          <Table rows={rows.slice(0, 300)} keyField="row" empty="Nothing in this view." cols={[
-            { label: 'Row', num: true, key: 'row' }, { label: 'Item', render: r => <><b>{r.name || '—'}</b><div className="small muted">{r.barcode} · GST {r.gst ?? '—'}% · ₹{r.price} (MRP {r.mrp})</div></> },
+        <Card title={`Checked: ${file}`} actions={<><Btn size="sm" kind={show === 'errors' ? 'primary' : 'default'} onClick={() => setShow('errors')}>Errors</Btn><Btn size="sm" kind={show === 'warn' ? 'primary' : 'default'} onClick={() => setShow('warn')}>To check</Btn><Btn size="sm" kind={show === 'all' ? 'primary' : 'default'} onClick={() => setShow('all')}>All</Btn></>}>
+          <p className="small muted" style={{ marginBottom: 8 }}>Read as {layout}. Columns found: {Object.entries(cols).map(([k, v]) => `${String(v).trim()} → ${k}`).join(' · ')}</p>
+          {hints > 0 && <div className="note" style={{ marginBottom: 8 }}>{hints} items have no real HSN. A likely HSN was found from the item name. <Btn size="sm" onClick={useHints}>Fill suggested HSN</Btn> <span className="small muted">GST rates are not changed — check items marked Nil.</span></div>}
+          <Table rows={rows.slice(0, 400)} keyField="row" empty="Nothing in this view." cols={[
+            { label: 'Row', num: true, key: 'row' }, { label: 'Item', render: r => <><b>{r.name || '—'}</b><div className="small muted">{r.barcode || 'no barcode'} · GST {r.gst ?? '—'}% · HSN {r.hsn || (r.hsnHint ? `— (suggest ${r.hsnHint})` : '—')} · {price(r)} · stock {r.openingStock}{r.uom === 'KG' ? ' kg' : ''}{r.expiry ? ` · exp ${r.expiry}` : ''}</div></> },
             { label: 'Problems', render: r => <div className="stack" style={{ gap: 4 }}>{r.errors.map((e, i) => <Badge key={'e' + i} tone="bad">{e}</Badge>)}{r.warnings.map((w, i) => <Badge key={'w' + i} tone="warn">{w}</Badge>)}{!r.errors.length && !r.warnings.length && <Badge tone="ok">OK</Badge>}</div> },
           ]} />
-          <div className="row gap-s" style={{ marginTop: 12 }}><Btn kind="primary" disabled={!res.ok || busy} onClick={importGood}>{busy ? 'Loading…' : `Load ${res.ok} good products`}</Btn><span className="small muted">Fix rows with errors in Excel and load the file again — already-loaded products are matched by SKU.</span></div>
+          {rows.length > 400 && <p className="small muted">Showing the first 400 of {rows.length}.</p>}
+          <div className="row gap-s wrap" style={{ marginTop: 12 }}><Btn kind="primary" disabled={!res.ok || busy} onClick={importGood}>{busy ? 'Loading…' : `Load ${res.ok} products`}</Btn><Btn onClick={() => exportRows(`import-check-${todayISO()}.xlsx`, 'To check', res.rows.filter(r => r.errors.length || r.warnings.length).map(r => ({ ROW: r.row, ITEM: r.name, BARCODE: r.barcode, ERRORS: r.errors.join(' | '), TO_CHECK: r.warnings.join(' | ') })))}>Download the list to check</Btn><span className="small muted">Fix items later in Products, or fix the Excel and load it again — items already loaded are updated, not added twice.</span></div>
         </Card>
       </>}
     </div>
@@ -161,6 +218,8 @@ function Backup() {
   const [rpw, setRpw] = useState('');
   const [busy, setBusy] = useState('');
   const [file, setFile] = useState(null);
+  const [pending, setPending] = useState(getSyncStatus().pending);
+  React.useEffect(() => onSyncStatus(st => setPending(st.pending)), []);
   const backup = async () => {
     setBusy('Making backup…');
     try {
@@ -209,6 +268,7 @@ function Backup() {
         </div>
       </Card>
       {busy && <div className="note span2">{busy}</div>}
+      <p className="small muted span2">{`${pending} change(s) waiting to go to the cloud. Every bill is saved on this device first, so the counter never waits for the internet.`}</p>
     </div>
   );
 }

@@ -33,6 +33,51 @@ function unitInfo(p, c) {
 const r2e = v => Math.round(v * 1e4) / 1e4;
 const stepFor = (l, f) => (f <= 0.01 ? 50 : l.uom === 'KG' && f === 1 ? 0.25 : 1);
 
+// Batch allocation (FEFO) for every cart line (cart quantities are in the base unit). Lines whose
+// quantity did not change keep their earlier result, so a 60-item bill does not re-read every batch per scan.
+async function allocateCart(cart, storeId, cfg, cache = new Map()) {
+  const m = {};
+  for (const c of cart) {
+    const q = Number(c.qty) || 0;
+    const hit = cache.get(c.key);
+    if (hit && hit.forQty === q && hit.productId === c.productId) { m[c.key] = hit; continue; }
+    const res = { ...(await allocateFEFO(c.productId, q, storeId, cfg)), forQty: q, productId: c.productId };
+    cache.set(c.key, res);
+    m[c.key] = res;
+  }
+  return m;
+}
+
+// Everything on screen (and what gets saved) is worked out here, from the cart and its allocations.
+// composition: the store is a composition dealer — no GST on bills (the item's rate is kept as rateWas).
+// Wholesale bills skip shop offers unless the owner turned them on (Settings › Loyalty & credit).
+function buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode }) {
+  const composition = !!settings.gstFiling?.composition;
+  const lines = cart.map(c => {
+    const p = pmap[c.productId];
+    if (!p) return null;
+    const ui = unitInfo(p, c);
+    const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
+    const a = allocs[c.key] || { alloc: [], blocked: [] };
+    const stale = !allocs[c.key] || allocs[c.key].forQty !== (Number(c.qty) || 0);
+    const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
+    return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: composition ? 0 : p.gst, ...(composition ? { rateWas: p.gst } : {}), qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, stale, override: c.price != null, ...ui };
+  }).filter(Boolean);
+  const noOffers = priceMode === 'wholesale' && !settings.wholesaleOffers;
+  const o = applyOffers(lines, noOffers ? [] : offers, { marginOverride: lines.some(l => l.override) });
+  const billLines = lines.map(l => ({
+    ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
+    offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
+  }));
+  const pre = computeBill(billLines, o.billDiscounts);
+  const maxPts = customer ? Math.max(0, Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100))) : 0;
+  const usePts = Math.min(points, maxPts);
+  const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
+  const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
+  const bill = computeBill(billLines, bd, inter);
+  return { lines, billLines, bill, maxPts, usePts, inter, stale: lines.some(l => l.stale), blocked: lines.filter(l => !l.stale && !l.alloc.alloc.length && l.alloc.blocked.length) };
+}
+
 export default function POS() {
   const { user, settings, storeId, param, go } = useApp();
   const toast = useToast();
@@ -58,6 +103,8 @@ export default function POS() {
   const [modal, setModal] = useState(null);
   const [orderId, setOrderId] = useState(null);
   const scanRef = useRef();
+  const allocCache = useRef(new Map());
+  const saving = useRef(false);
 
   const pmap = useMemo(() => Object.fromEntries(products.map(p => [p.id, p])), [products]);
 
@@ -74,12 +121,11 @@ export default function POS() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [param?.orderId, products.length]);
 
-  // Re-run FEFO batch allocation whenever quantities change.
+  // Re-run FEFO batch allocation for lines whose quantity changed.
   useEffect(() => {
     let live = true;
     (async () => {
-      const m = {};
-      for (const c of cart) m[c.key] = await allocateFEFO(c.productId, c.qty, storeId, cfg);
+      const m = await allocateCart(cart, storeId, cfg, allocCache.current);
       if (live) setAllocs(m);
     })();
     return () => { live = false; };
@@ -88,42 +134,20 @@ export default function POS() {
 
   const setCust = async c => {
     setCustomer(c);
-    // A customer marked "wholesale" (by the owner or a manager) switches the bill to wholesale prices; removing them switches back.
-    if (c?.wholesale) { if (priceMode !== 'wholesale') { setPriceMode('wholesale'); setAutoWh(true); audit('wholesale_bill', { customer: c.name, auto: true }, user); } }
+    // A customer whose rate is Wholesale (set by the owner or a manager) switches the bill to wholesale
+    // prices without a PIN; taking that customer off the bill switches it back.
+    if (c?.priceLevel === 'wholesale') { if (priceMode !== 'wholesale') { setPriceMode('wholesale'); setAutoWh(true); audit('wholesale_bill', { customer: c.name, auto: true }, user); } }
     else if (autoWh) { setPriceMode('retail'); setAutoWh(false); }
     setPoints(0);
     setDue(c ? await customerDue(c.id) : 0);
     if (c?.gstin) setB2b(c.gstin);
   };
 
-  const view = useMemo(() => {
-    const lines = cart.map(c => {
-      const p = pmap[c.productId];
-      if (!p) return null;
-      const ui = unitInfo(p, c);
-      const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
-      const a = allocs[c.key] || { alloc: [], blocked: [] };
-      const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: composition ? 0 : p.gst, ...(composition ? { rateWas: p.gst } : {}), qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...ui };
-    }).filter(Boolean);
-    const noOffers = priceMode === 'wholesale' && !settings.wholesaleOffers;
-    const o = applyOffers(lines, noOffers ? [] : offers, { marginOverride: lines.some(l => l.override) });
-    const billLines = lines.map(l => ({
-      ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
-      offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
-    }));
-    const pre = computeBill(billLines, o.billDiscounts);
-    const maxPts = customer ? Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100)) : 0;
-    const usePts = Math.min(points, maxPts);
-    const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
-    const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
-    const bill = computeBill(billLines, bd, inter);
-    return { lines, billLines, bill, maxPts, usePts, inter, blocked: lines.filter(l => !l.alloc.alloc.length && l.alloc.blocked.length) };
-  }, [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode, composition]);
+  const view = useMemo(() => buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode }), [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (q.length < 2 || /^\d{8,}$/.test(q)) return [];
+    if (q.length < 2 || /^\d{6,}$/.test(q)) return [];
     return smartSearch(query.trim(), products, 8);   // Hindi/Odia names and typing mistakes too
   }, [query, products]);
 
@@ -148,9 +172,8 @@ export default function POS() {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    if (suggestions.length && !/^\d{8,}$/.test(q)) return addProduct(suggestions[hi] || suggestions[0]);
-    // An exact barcode wins over a weighing-scale reading, so store and maker barcodes never
-    // get mistaken for scale stickers.
+    // An exact code always wins (barcode, SKU, PLU), then weighing-scale stickers, then the name list —
+    // so a scanned code can never add a look-alike product by name.
     const p = products.find(x => x.barcode === q || x.id.toLowerCase() === q.toLowerCase() || (x.plu && x.plu === q));
     if (p) {
       if (p.loose) return setModal({ type: 'weight', product: p });
@@ -160,6 +183,10 @@ export default function POS() {
     if (scale) {
       const sp = products.find(x => x.plu === scale.plu);
       if (sp) return addProduct(sp, r2(scale.grams / 1000));
+    }
+    if (suggestions.length && !/^\d{6,}$/.test(q)) {
+      const sp = suggestions[hi] || suggestions[0];
+      return sp.loose ? setModal({ type: 'weight', product: sp }) : addProduct(sp);
     }
     beep(); setQuery('');
     if (/^[A-Z0-9-]{6,20}$/i.test(q)) {
@@ -201,6 +228,7 @@ export default function POS() {
       audit('bill_cancel', { items: cart.length, value: view.bill.totals.payable, approvedBy: mgr.name }, user);
     }
     setCart([]); setPriceMode('retail'); setAutoWh(false); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
+    allocCache.current.clear();
     scanRef.current?.focus();
   };
 
@@ -212,16 +240,43 @@ export default function POS() {
   };
 
   const finish = async payments => {
+    if (saving.current) return;                     // a double press never makes two bills
     if (b2b && !validGSTIN(b2b)) { toast('That GSTIN is not valid. Fix it or clear it for a normal bill.', 'bad'); return; }
-    const sale = await saveSale({
-      bill: view.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
-      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId, priceMode, composition,
-    });
-    if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
-    const short = view.lines.filter(l => l.alloc.shortfall > 0);
-    if (short.length) { toast(`Stock count was short for ${short.map(l => l.name).join(', ')}. Manager alerted to recount.`, 'warn'); audit('negative_stock', { items: short.map(l => l.name), bill: sale.no }, user); }
-    setModal({ type: 'receipt', sale });
-    clearBill(true);
+    saving.current = true;
+    try {
+      // Batches are read again right now, so stock sold at another counter a moment ago is respected.
+      const fresh = await allocateCart(cart, storeId, cfg, new Map());
+      const v = buildView({ cart, allocs: fresh, offers, pmap, customer, points, b2b, settings, priceMode });
+      if (Math.abs(v.bill.totals.payable - view.bill.totals.payable) > 0.001) {
+        setAllocs(fresh);
+        toast(`Stock changed while billing — the total is now ${inr(v.bill.totals.payable)}. Take payment again.`, 'warn');
+        return;
+      }
+      if (v.blocked.length) { setAllocs(fresh); toast(`${v.blocked.map(l => l.name).join(', ')}: only expired stock left.`, 'bad'); return; }
+      const sale = await saveSale({
+        bill: v.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
+        pointsUsed: v.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: v.inter } : null, orderId, priceMode, composition,
+      });
+      if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
+      const short = v.lines.filter(l => l.alloc.shortfall > 0);
+      if (short.length) { toast(`Stock count was short for ${short.map(l => l.name).join(', ')}. Manager alerted to recount.`, 'warn'); audit('negative_stock', { items: short.map(l => l.name), bill: sale.no }, user); }
+      setModal({ type: 'receipt', sale });
+      clearBill(true);
+    } catch (e) {
+      toast('Bill not saved: ' + (e.message || e), 'bad');
+    } finally {
+      saving.current = false;
+    }
+  };
+
+  // Payment opens only when the last scan's stock check has finished (a fast cashier can press F9 at once).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const openPay = (mode, tries = 0) => {
+    const v = viewRef.current;
+    if (!v.lines.length || v.blocked.length) return;
+    if (v.stale && tries < 50) { setTimeout(() => openPay(mode, tries + 1), 40); return; }
+    setModal({ type: 'pay', mode });
   };
 
   const canPay = cart.length > 0 && !view.blocked.length;
@@ -232,10 +287,10 @@ export default function POS() {
     F8: () => setModal({ type: 'recall' }),
     F6: () => setModal({ type: 'return' }),
     // One key per way of paying (same keys as the tiles): F9 cash, F10 UPI, F11 card, F12 udhaar.
-    F9: () => canPay && setModal({ type: 'pay', mode: 'cash' }),
-    F10: () => canPay && setModal({ type: 'pay', mode: 'upi' }),
-    F11: () => canPay && setModal({ type: 'pay', mode: 'card' }),
-    F12: () => canPay && setModal({ type: 'pay', mode: 'credit' }),
+    F9: () => canPay && openPay('cash'),
+    F10: () => canPay && openPay('upi'),
+    F11: () => canPay && openPay('card'),
+    F12: () => canPay && openPay('credit'),
   }, [cart, view, customer]);
 
   if (shift === undefined) return <p className="muted">Loading counter…</p>;
@@ -357,7 +412,7 @@ export default function POS() {
               {t.savings > 0 && <div className="save-pill">Customer saves {inr(t.savings)} on MRP</div>}
               <div className="pay-tiles" role="group" aria-label="Take payment">
                 {PAY_TILES.map(pt => (
-                  <button key={pt.mode} type="button" className={`pay-tile pay-${pt.mode}`} disabled={!canPay} onClick={() => setModal({ type: 'pay', mode: pt.mode })} aria-label={`${pt.label}, shortcut ${pt.key}`}>
+                  <button key={pt.mode} type="button" className={`pay-tile pay-${pt.mode}`} disabled={!canPay} onClick={() => openPay(pt.mode)} aria-label={`${pt.label}, shortcut ${pt.key}`}>
                     <kbd className="pay-key">{pt.key}</kbd>
                     <svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: pt.icon }} />
                     <span>{pt.label}</span>
@@ -453,10 +508,17 @@ function CustomerModal({ onClose, onPick }) {
   const { settings } = useApp();
   const [q, setQ] = useState('');
   const [name, setName] = useState('');
+  // Indexed look-ups first (phone / name start), so this stays instant with 50,000 customers.
   const list = useLive(async () => {
-    const all = await db.customers.toArray();
     const s = q.trim().toLowerCase();
-    return s ? all.filter(c => c.phone.includes(s) || c.name.toLowerCase().includes(s)).slice(0, 8) : all.sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0)).slice(0, 6);
+    if (!s) return (await db.customers.orderBy('updatedAt').reverse().limit(60).toArray()).sort((a, b) => (b.lastVisit || 0) - (a.lastVisit || 0)).slice(0, 6);
+    const digits = s.replace(/\D/g, '');
+    let hits = /^\d+$/.test(s) ? await db.customers.where('phone').startsWith(digits).limit(8).toArray() : await db.customers.where('name').startsWithIgnoreCase(s).limit(8).toArray();
+    if (hits.length < 8 && s.length >= 3) {
+      const more = (await db.customers.toArray()).filter(c => String(c.phone).includes(s) || String(c.name).toLowerCase().includes(s)).slice(0, 8);
+      hits = [...hits, ...more.filter(m => !hits.some(h => h.id === m.id))].slice(0, 8);
+    }
+    return hits;
   }, [q], []);
   const add = async () => {
     const phone = q.replace(/\D/g, '');

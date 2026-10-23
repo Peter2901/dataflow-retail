@@ -1,7 +1,7 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import { db, ensureSeeded, getSettings, setSetting } from './db.js';
 import { AppCtx, ToastHost, ApproveHost, ConfirmHost, useLive } from './ui/kit.jsx';
-import { hashPin, daysBetween, localISO } from './lib/util.js';
+import { hashPin, localISO } from './lib/util.js';
 import { audit } from './lib/sales.js';
 import { startSync, getStatus, onSyncStatus, setSyncUser } from './lib/sync.js';
 import Dashboard from './pages/Dashboard.jsx';
@@ -208,14 +208,11 @@ export default function App() {
   const counts = useLive(async () => {
     const orders = await db.orders.where('status').anyOf('new', 'packing', 'ready').count();
     const today = localISO(new Date());
-    const followups = (await db.followups.toArray()).filter(f => !f.done && f.due <= today).count ?? 0;
-    const fu = (await db.followups.toArray()).filter(f => !f.done && f.due <= today).length;
+    const fu = await db.followups.filter(f => !f.done && f.due <= today).count();
     const store = settings?.currentStore || 'S1';
-    const bs = await db.batches.where('storeId').equals(store).toArray();
-    const exp = bs.filter(b => b.status === 'active' && b.qty > 0 && b.expiry && daysBetween(new Date(), new Date(b.expiry)) <= 7).length;
-    const pending = await db.outbox.where('synced').equals(0).count();
-    void followups;
-    return { orders, followups: fu, expiry: exp, pending };
+    // Only batches expiring within a week are read (expiry index) — this runs after every bill.
+    const exp = await db.batches.where('expiry').belowOrEqual(localISO(new Date(Date.now() + 7 * 864e5))).filter(b => b.storeId === store && b.status === 'active' && b.qty > 0 && !!b.expiry).count();
+    return { orders, followups: fu, expiry: exp };
   }, [settings?.currentStore], {});
 
   if (!ready || !settings || userCount === null) return <div className="login"><div className="login-box"><p>Opening the store…</p></div></div>;

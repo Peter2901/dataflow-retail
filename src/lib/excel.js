@@ -2,6 +2,7 @@
 import * as XLSX from 'xlsx';
 import { download, validEAN, todayISO, r2, localISO } from './util.js';
 import { GST_SLABS } from './billing.js';
+import { isMargSheet, mapMargItems } from './marg.js';
 import { cleanUnits, unitErrors, priceErrors, cleanPrices } from './units.js';
 
 // Column names from 'Sameer Excel Final 15OCT.xlsx', plus common alternatives.
@@ -38,8 +39,17 @@ function excelDate(v) {
 export async function readSheet(file) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  return { sheet: wb.SheetNames[0], rows: XLSX.utils.sheet_to_json(ws, { defval: '' }) };
+  // The item list is usually the first sheet; if not, take the sheet with the most rows.
+  let name = wb.SheetNames[0];
+  const count = n => { const ref = wb.Sheets[n]['!ref']; return ref ? XLSX.utils.decode_range(ref).e.r : 0; };
+  if (!/item|product|master|stock/i.test(name)) name = wb.SheetNames.reduce((a, b) => (count(b) > count(a) ? b : a), name);
+  return { sheet: name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: '' }) };
+}
+
+/** Any product sheet → mapped rows. Billing-software item masters (Product*, Unit-1*, Conversion…) are read by marg.js. */
+export function mapAnyProducts(raw) {
+  if (raw.length && isMargSheet(Object.keys(raw[0]))) return { ...mapMargItems(raw), layout: 'billing software item master' };
+  return { ...mapProducts(raw), layout: 'product list' };
 }
 
 export function mapProducts(raw) {
@@ -81,34 +91,39 @@ export function mapProducts(raw) {
 }
 
 // Data checker. Errors stop that row from loading; warnings load but are flagged.
+// A product already in the system (same SKU, barcode, or same name without a barcode) is updated, not added twice.
 export function checkProducts(items, existing = []) {
   const seenBar = {}, seenId = {};
-  existing.forEach(p => { if (p.barcode) seenBar[p.barcode] = 'existing'; });
+  const byBar = {}, byId = {}, byName = {};
+  existing.forEach(p => { if (p.barcode) byBar[p.barcode] = p; byId[p.id] = p; byName[String(p.name).trim().toUpperCase()] = p; });
   const out = items.map(p => {
-    const errors = [], warnings = [];
+    const errors = [...(p.errors || [])], warnings = [...(p.warnings || [])];
+    const old = (p.id && byId[p.id]) || (p.barcode && byBar[p.barcode]) || (!p.barcode && byName[p.name.trim().toUpperCase()]) || null;
     if (!p.name) errors.push('Name missing');
     if (!(p.price > 0)) errors.push('Selling price missing');
     if (p.mrp && p.price > p.mrp) errors.push(`Selling price ₹${p.price} above MRP ₹${p.mrp}`);
-    if (p.cost && p.price && p.cost >= p.price) errors.push(`Purchase rate ₹${p.cost} not below selling price ₹${p.price}`);
-    if (p.gst == null || isNaN(p.gst)) errors.push('GST rate missing');
+    if (p.cost && p.price && p.cost >= p.price && !warnings.some(w => w.startsWith('Purchase rate'))) warnings.push(`Purchase rate ₹${p.cost} not below selling price ₹${p.price} — check`);
+    if (p.gst == null || isNaN(p.gst)) { if (!errors.includes('GST rate missing')) errors.push('GST rate missing'); }
     else if (!GST_SLABS.includes(p.gst)) errors.push(p.gst === 12 || p.gst === 28 ? `GST ${p.gst}% no longer exists (since 22 Sep 2025) — set 5%, 18% or 40%` : `GST ${p.gst}% is not a valid slab`);
     if (p.barcode) {
-      if (/^\d+$/.test(p.barcode) && [8, 12, 13, 14].includes(p.barcode.length) && !validEAN(p.barcode)) errors.push('Barcode check digit wrong');
-      if (seenBar[p.barcode]) errors.push(seenBar[p.barcode] === 'existing' ? 'Barcode already used by a product in the system' : `Same barcode as row ${seenBar[p.barcode]}`);
+      if (/^\d+$/.test(p.barcode) && [8, 12, 13, 14].includes(p.barcode.length) && !validEAN(p.barcode)) warnings.push('Barcode check digit does not match — kept as it is (store-made code?)');
+      if (seenBar[p.barcode]) errors.push(`Same barcode as row ${seenBar[p.barcode]}`);
       else seenBar[p.barcode] = p.row;
-    } else if (!p.loose) warnings.push('No barcode — cashier must search by name');
+    } else if (!p.loose && !warnings.some(w => w.startsWith('No barcode'))) warnings.push('No barcode — cashier must search by name');
     if (p.id) { if (seenId[p.id]) errors.push(`Same SKU as row ${seenId[p.id]}`); else seenId[p.id] = p.row; }
-    if (!/^\d{4}$|^\d{6}$|^\d{8}$/.test(p.hsn)) warnings.push('HSN should be 4, 6 or 8 digits');
+    if (p.hsn && !/^\d{4}$|^\d{6}$|^\d{8}$/.test(p.hsn)) warnings.push('HSN should be 4, 6 or 8 digits');
+    else if (!p.hsn && !warnings.some(w => w.includes('HSN'))) warnings.push('HSN missing');
     const taxable = p.price / (1 + (p.gst || 0) / 100);
     const margin = taxable ? ((taxable - p.cost) / taxable) * 100 : 0;
     if (p.cost && margin < 5 && margin > 0) warnings.push(`Low margin ${margin.toFixed(1)}%`);
     if (p.cost && margin > 60) warnings.push(`Very high margin ${margin.toFixed(0)}% — check purchase rate`);
-    if (p.expiry && p.expiry < todayISO() && p.openingStock > 0) warnings.push(`Expired on ${p.expiry} — will be quarantined, not sold`);
+    if (p.expiry && p.expiry < todayISO() && p.openingStock > 0) warnings.push(`Expired on ${p.expiry} — this stock will be held back, not sold, until the date is fixed`);
     if (p.openingStock < 0) errors.push('Opening stock below zero');
     unitErrors(p).forEach(e => errors.push(e));
-    if (!errors.length) priceErrors(p).forEach(e => errors.push(e));
-    if (!p.rack) warnings.push('No rack location');
-    return { ...p, margin: r2(margin), errors, warnings };
+    // Above MRP stops the row (law); wholesale below the purchase rate loads but is flagged.
+    if (!errors.length) priceErrors(p).forEach(e => (/below the purchase rate/.test(e) ? warnings : errors).push(e));
+    if (old) warnings.push(`Already in the system (${old.name}) — details and prices will be updated, stock is not added again`);
+    return { ...p, existingId: old?.id || null, margin: r2(margin), errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
   });
   return {
     rows: out,
@@ -116,6 +131,7 @@ export function checkProducts(items, existing = []) {
     withErrors: out.filter(r => r.errors.length).length,
     withWarnings: out.filter(r => !r.errors.length && r.warnings.length).length,
     gstOld: out.filter(r => r.gst === 12 || r.gst === 28).length,
+    updates: out.filter(r => r.existingId && !r.errors.length).length,
   };
 }
 

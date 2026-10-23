@@ -1,13 +1,21 @@
 // Buying: purchase bills (goods receipt), supplier returns with debit notes, and reorder suggestions.
 import { db } from '../db.js';
-import { uid, r2, sum, addDays, todayISO, localISO } from './util.js';
+import { uid, r2, sum, addDays, todayISO, localISO, groupBy } from './util.js';
 import { addBatch, moveStock, daysLeft, stockMap } from './stock.js';
 import { postPurchase, postDebitNote, postPayment } from './accounts.js';
 import { audit } from './sales.js';
 import { lineCalc } from './purchaseChecks.js';
 import { aliasId } from './match.js';
+import { lastDays, combine } from './daysums.js';
 
-const nextNo = async (table, prefix) => prefix + String((await db[table].count()) + 1001);
+// Document numbers carry the device (PUR-T1-1001, PUR-P7Q-1001), so a phone and a counter entering
+// purchases at the same time never give two bills the same number.
+const nextNo = async (table, prefix) => {
+  const dev = (await db.settings.get('terminal'))?.value || 'T1';
+  const pre = `${prefix}${dev}-`;
+  const last = await db[table].where('no').startsWith(pre).last();
+  return pre + String(Math.max(1000, Number(String(last?.no || '').slice(pre.length)) || 0) + 1).padStart(6, '0');   // fixed width keeps them in order
+};
 
 /**
  * Saves a supplier bill. Lines: qty and free in the supplier's unit, pack = pieces per unit,
@@ -31,7 +39,7 @@ export async function savePurchase({ supplier, billNo, date, lines, storeId, use
     // Purchase rate becomes the weighted average landing cost, so margins stay right.
     const p = await db.products.get(l.productId);
     if (p) {
-      const onHand = (await stockMap(storeId))[p.id] || 0;
+      const onHand = (await db.batches.where('productId').equals(p.id).toArray()).filter(b => b.storeId === storeId && b.status === 'active').reduce((a, b) => a + b.qty, 0);   // this item only
       const prev = Math.max(0, onHand - l.pieces);
       const avg = onHand > 0 ? r2((prev * (p.cost || l.landing) + l.pieces * l.landing) / onHand) : l.landing;
       const upd = { cost: avg, vendorId: p.vendorId || supplier.id };
@@ -99,11 +107,9 @@ export async function paySupplier({ supplier, amount, mode, ref, user, purchaseI
 export async function reorderSuggestions(storeId, cfg) {
   const products = (await db.products.toArray()).filter(p => p.active !== false);
   const stock = await stockMap(storeId);
-  const since = Date.now() - 30 * 86400000;
-  const sales = await db.sales.where('ts').above(since).filter(s => s.storeId === storeId && s.type === 'sale').toArray();
-  const sold = {};
-  sales.forEach(s => s.lines.forEach(l => (sold[l.productId] = (sold[l.productId] || 0) + l.qty)));
-  const batches = (await db.batches.where('storeId').equals(storeId).toArray()).filter(b => b.status === 'active' && b.qty > 0);
+  // Sold in the last 30 days, from the day totals (not every bill the store ever made).
+  const sold = Object.fromEntries(Object.entries(combine(await lastDays(storeId, 30)).items).map(([pid, v]) => [pid, v[2]]));
+  const byProduct = groupBy((await db.batches.where('storeId').equals(storeId).toArray()).filter(b => b.status === 'active' && b.qty > 0), b => b.productId);
   const suppliers = Object.fromEntries((await db.suppliers.toArray()).map(s => [s.id, s]));
   const openPO = new Set((await db.purchaseOrders.toArray()).filter(o => ['draft', 'sent'].includes(o.status)).flatMap(o => o.lines.map(l => l.productId)));
   const out = [];
@@ -114,7 +120,7 @@ export async function reorderSuggestions(storeId, cfg) {
     const safety = Math.ceil(daily * 2);
     const rop = Math.max(p.reorderMin || 0, Math.ceil(daily * lead + safety));
     if (onHand > rop) continue;
-    const nearExpiry = batches.some(b => b.productId === p.id && b.expiry && daysLeft(b.expiry) <= (cfg?.stopReorderDays || 90) && daysLeft(b.expiry) >= 0 && b.qty >= Math.max(1, daily * 7));
+    const nearExpiry = (byProduct[p.id] || []).some(b => b.expiry && daysLeft(b.expiry) <= (cfg?.stopReorderDays || 90) && daysLeft(b.expiry) >= 0 && b.qty >= Math.max(1, daily * 7));
     let qty = Math.max((p.reorderMax || rop * 2) - onHand, 1);
     const cp = p.casePack || 1;
     qty = Math.ceil(qty / cp) * cp;

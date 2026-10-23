@@ -12,7 +12,7 @@ import { deadStock } from '../lib/insights.js';
 function makeTools(storeId) {
   const salesIn = async (fromDays, toDays = 0) => {
     const a = Date.now() - fromDays * 864e5, b = Date.now() - toDays * 864e5;
-    return db.sales.where('ts').between(a, b, true, true).filter(s => s.storeId === storeId).toArray();
+    return (await db.sales.where('ts').between(a, b, true, true).toArray()).filter(s => s.storeId === storeId);
   };
   const sg = s => (s.type === 'return' ? -1 : 1);
   return [

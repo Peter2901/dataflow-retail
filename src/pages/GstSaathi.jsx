@@ -4,7 +4,7 @@
 // AI never files a return and never sets a GST rate. Rule-book changes need the owner's OK.
 import React, { useEffect, useMemo, useState } from 'react';
 import { db, setSetting } from '../db.js';
-import { useApp, useLive, useToast, PageHead, Card, Btn, Badge, Table, Stat, Select, Input } from '../ui/kit.jsx';
+import { useApp, useLive, useSlowLive, useToast, PageHead, Card, Btn, Badge, Table, Stat, Select, Input } from '../ui/kit.jsx';
 import { inr, download, localISO, r2, sum } from '../lib/util.js';
 import { exportRows, exportBook, readAny } from '../lib/excel.js';
 import { audit } from '../lib/sales.js';
@@ -48,7 +48,8 @@ export default function GstSaathi() {
   const home = String(settings.stateCode || '').padStart(2, '0');
   const isOwner = user.role === 'owner';
 
-  const inP = useLive(() => salesIn(range.from, range.to), [range.from, range.to], null);
+  // Read only the return period (by date), all stores of this GSTIN; refreshed at most every 30 s while open.
+  const inP = useSlowLive(() => salesIn(range.from, range.to), [range.from, range.to], null, 30000);
   const purchases = useLive(() => db.purchases.toArray(), [], []);
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
   const writeoffs = useLive(() => db.journal.where('type').equals('writeoff').toArray(), [], []);
