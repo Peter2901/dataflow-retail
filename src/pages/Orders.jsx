@@ -4,6 +4,8 @@ import { useApp, useLive, useToast, PageHead, Btn, Modal, Input, Select, Badge, 
 import ProductPicker from '../ui/ProductPicker.jsx';
 import { inr, uid, waLink, fmtDT, sum, r2 } from '../lib/util.js';
 import { stockMap, reservedMap } from '../lib/stock.js';
+import { nextNo } from '../lib/purchasing.js';
+import { withLock } from '../lib/sales.js';
 
 const FLOW = { new: 'New', packing: 'Packing', ready: 'Ready', billed: 'Billed', delivered: 'Delivered', cancelled: 'Cancelled' };
 const NEXT = { new: 'packing', packing: 'ready', billed: 'delivered' };
@@ -86,8 +88,11 @@ function NewOrder({ products, stock, reserved, onClose }) {
     if (ph.length !== 10 || !items.length) { toast('Add a 10-digit mobile number and at least one item.', 'bad'); return; }
     let c = known;
     if (!c) { c = { id: uid('c_'), name: name || 'Customer ' + ph.slice(-4), phone: ph, yearSpend: 0, lifeSpend: 0, points: 0, visits: 0, creditLimit: 2000, gstin: '', consentWhatsApp: true, createdAt: Date.now() }; await db.customers.add(c); }
-    const n = await db.orders.count();
-    await db.orders.add({ id: uid('o_'), no: 'ORD-' + (1001 + n), customerId: c.id, customerName: c.name, phone: ph, items, status: 'new', mode, address, createdAt: Date.now(), channel: 'WhatsApp' });
+    // Numbered per device (ORD-T1-001002), so a phone and a counter taking orders at once never clash.
+    await withLock('order', async () => {
+      const no = await nextNo('orders', 'ORD-');
+      await db.orders.add({ id: uid('o_'), no, customerId: c.id, customerName: c.name, phone: ph, items, status: 'new', mode, address, createdAt: Date.now(), channel: 'WhatsApp' });
+    });
     toast('Order saved. Stock for it is now held back.'); onClose();
   };
   return (

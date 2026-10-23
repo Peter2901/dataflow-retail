@@ -130,6 +130,12 @@ async function allTimeBalances() {
 
 export async function balances(untilTs = Infinity, fromTs = -Infinity) {
   if (untilTs === Infinity && fromTs === -Infinity) return allTimeBalances();
+  // "Up to now" (balance sheet, profit so far): the saved total, minus the few entries dated after `untilTs`.
+  if (fromTs === -Infinity && untilTs >= new Date().setHours(0, 0, 0, 0)) {
+    const b = await allTimeBalances();
+    await db.journal.where('ts').above(untilTs).each(e => e.lines.forEach(l => (b[l.acc] = r2((b[l.acc] || 0) - (l.dr || 0) + (l.cr || 0)))));
+    return b;
+  }
   const b = {};
   const lo = fromTs === -Infinity ? -Infinity : fromTs, hi = untilTs === Infinity ? Infinity : untilTs;
   // Only the asked dates are read (ts index).
@@ -160,6 +166,10 @@ export async function profitAndLoss(fromTs, toTs) {
 export async function balanceSheet(untilTs = Date.now()) {
   const b = await balances(untilTs);
   const accs = await db.accounts.toArray();
+  // A customer's or supplier's account row can arrive from another counter after its entries do:
+  // their money still belongs on the balance sheet.
+  const known = new Set(accs.map(a => a.id));
+  for (const id of Object.keys(b)) if (!known.has(id) && /^(cust|supp):/.test(id)) accs.push({ id, name: id, group: id.startsWith('cust:') ? 'asset' : 'liability', party: id.slice(0, 4) });
   const pl = await profitAndLoss(-Infinity, untilTs);
   const assets = accs.filter(a => a.group === 'asset').map(a => ({ ...a, amt: b[a.id] || 0 })).filter(a => Math.abs(a.amt) >= 0.01);
   const liabs = accs.filter(a => a.group === 'liability').map(a => ({ ...a, amt: -(b[a.id] || 0) })).filter(a => Math.abs(a.amt) >= 0.01);

@@ -44,8 +44,31 @@ export function useSlowLive(fn, deps = [], initial = undefined, every = 30000) {
 export const AppCtx = createContext(null);
 export const useApp = () => useContext(AppCtx);
 
-export function Btn({ kind = 'default', size, children, className = '', ...p }) {
-  return <button className={`btn btn-${kind} ${size ? 'btn-' + size : ''} ${className}`} {...p}>{children}</button>;
+// Wraps a save handler (a form's onSubmit) so a second Enter or click while it is still saving does nothing.
+export function useOnce(fn) {
+  const busy = useRef(false);
+  return async (...a) => {
+    if (busy.current) { a[0]?.preventDefault?.(); return undefined; }
+    busy.current = true;
+    try { return await fn(...a); } finally { busy.current = false; }
+  };
+}
+
+// A button whose job takes time (saving, posting) cannot be pressed again until that job is done,
+// so a double click never saves a purchase, a payment or a salary run twice.
+export function Btn({ kind = 'default', size, children, className = '', onClick, ...p }) {
+  const busy = useRef(false);
+  const [wait, setWait] = useState(false);
+  const click = onClick && (e => {
+    if (busy.current) { e.preventDefault(); return; }
+    const r = onClick(e);
+    if (r && typeof r.then === 'function') {
+      busy.current = true; setWait(true);
+      r.then(() => {}, () => {}).finally(() => { busy.current = false; setWait(false); });
+    }
+    return r;
+  });
+  return <button className={`btn btn-${kind} ${size ? 'btn-' + size : ''} ${className}`} onClick={click} aria-busy={wait || undefined} {...p}>{children}</button>;
 }
 
 export function Field({ label, hint, children, className = '' }) {

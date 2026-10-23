@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { db } from '../db.js';
 import { suggestHsnGst, readPackPhoto } from '../lib/productTools.js';
-import { useApp, useToast, useLive, Modal, Btn, Input, Select, Field } from './kit.jsx';
+import { useApp, useToast, useLive, Modal, Btn, Input, Select, Field, useOnce } from './kit.jsx';
 import { GST_SLABS } from '../lib/billing.js';
 import { quickAddProduct, freshStoreBarcode } from '../lib/products.js';
 import { isStoreBarcode } from '../lib/barcode.js';
@@ -43,7 +43,7 @@ export default function QuickAdd({ barcode = '', name = '', mrp = '', gst = 5, c
     setReading('');
   };
 
-  const save = async next => {
+  const save = useOnce(async next => {
     if (busy) return;
     setBusy(true);
     try {
@@ -55,7 +55,7 @@ export default function QuickAdd({ barcode = '', name = '', mrp = '', gst = 5, c
       else onClose();
     } catch (e) { toast(e.message, 'bad'); }
     setBusy(false);
-  };
+  });
 
   const codeHint = !f.barcode ? 'Leave empty for items without a barcode: a store barcode is made for you.'
     : isStoreBarcode(f.barcode) ? 'Store barcode (starts with 02). Print stickers from Products.'

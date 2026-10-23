@@ -3,14 +3,14 @@ import { db } from '../db.js';
 import { uid, r2, sum, addDays, todayISO, localISO, groupBy } from './util.js';
 import { addBatch, moveStock, daysLeft, stockMap } from './stock.js';
 import { postPurchase, postDebitNote, postPayment } from './accounts.js';
-import { audit } from './sales.js';
+import { audit, withLock } from './sales.js';
 import { lineCalc } from './purchaseChecks.js';
 import { aliasId } from './match.js';
 import { lastDays, combine } from './daysums.js';
 
 // Document numbers carry the device (PUR-T1-1001, PUR-P7Q-1001), so a phone and a counter entering
 // purchases at the same time never give two bills the same number.
-const nextNo = async (table, prefix) => {
+export const nextNo = async (table, prefix) => {
   const dev = (await db.settings.get('terminal'))?.value || 'T1';
   const pre = `${prefix}${dev}-`;
   const last = await db[table].where('no').startsWith(pre).last();
@@ -23,7 +23,8 @@ const nextNo = async (table, prefix) => {
  * landing cost (after discount and free goods). Lines read from a bill also teach the
  * supplier memory: "what this supplier calls it" → product, and pieces per unit.
  */
-export async function savePurchase({ supplier, billNo, date, lines, storeId, user, source = 'manual', poId = null, updateMrp = true, scan = null }) {
+export function savePurchase(args) { return withLock('purchase', () => savePurchaseNow(args)); }
+async function savePurchaseNow({ supplier, billNo, date, lines, storeId, user, source = 'manual', poId = null, updateMrp = true, scan = null }) {
   const L = lines.filter(l => l.productId && Number(l.qty) > 0).map(l => {
     const c = lineCalc(l);
     return { productId: l.productId, name: l.name, text: l.text || '', hsn: l.hsn || '', unit: l.unit || '', qty: c.qty, free: c.free, pack: c.pack, rate: c.rate, disc: c.disc, gst: c.gst,
@@ -67,7 +68,8 @@ export async function lastBillLines(supplierId) {
   return { bill: last, lines: last.lines.map(l => ({ productId: l.productId, name: l.name, text: l.text || '', unit: l.unit || '', hsn: l.hsn || '', qty: l.qty, free: l.free || 0, pack: l.pack || 1, rate: l.rate, disc: l.disc || 0, gst: l.gst, mrp: l.mrp || '' })) };
 }
 
-export async function createDebitNote({ supplier, items, reason, user }) {
+export function createDebitNote(args) { return withLock('purchase', () => createDebitNoteNow(args)); }
+async function createDebitNoteNow({ supplier, items, reason, user }) {
   const settings = Object.fromEntries((await db.settings.toArray()).map(r => [r.key, r.value]));
   const L = [];
   for (const it of items) {
@@ -86,7 +88,8 @@ export async function createDebitNote({ supplier, items, reason, user }) {
   return dn;
 }
 
-export async function paySupplier({ supplier, amount, mode, ref, user, purchaseIds = [] }) {
+export function paySupplier(args) { return withLock('purchase', () => paySupplierNow(args)); }
+async function paySupplierNow({ supplier, amount, mode, ref, user, purchaseIds = [] }) {
   let left = Number(amount);
   const open = (await db.purchases.where('supplierId').equals(supplier.id).toArray()).filter(p => p.total - (p.paid || 0) > 0.01)
     .sort((a, b) => (purchaseIds.includes(a.id) ? -1 : 0) - (purchaseIds.includes(b.id) ? -1 : 0) || a.date.localeCompare(b.date));
@@ -129,7 +132,8 @@ export async function reorderSuggestions(storeId, cfg) {
   return out;
 }
 
-export async function createPO({ supplier, lines, user }) {
+export function createPO(args) { return withLock('purchase', () => createPONow(args)); }
+async function createPONow({ supplier, lines, user }) {
   const L = lines.map(l => ({ ...l, taxable: r2(l.qty * l.rate), tax: r2((l.qty * l.rate * l.gst) / 100) }));
   const po = { id: uid('po_'), no: await nextNo('purchaseOrders', 'PO-'), supplierId: supplier.id, date: todayISO(), lines: L, total: r2(sum(L, l => l.taxable + l.tax)), status: 'draft' };
   await db.purchaseOrders.add(po);

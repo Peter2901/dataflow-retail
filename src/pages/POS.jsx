@@ -1,18 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { db } from '../db.js';
-import { useApp, useLive, useToast, useApprove, useConfirm, Btn, Input, Modal, Badge, Card, useHotkeys, Select } from '../ui/kit.jsx';
+import { useApp, useLive, useToast, useApprove, useConfirm, Btn, Input, Modal, Badge, Card, useHotkeys, Select, useOnce } from '../ui/kit.jsx';
 import Receipt, { receiptText } from '../ui/Receipt.jsx';
-import { computeBill, parseScaleBarcode } from '../lib/billing.js';
-import { applyOffers } from '../lib/offers.js';
+import { parseScaleBarcode } from '../lib/billing.js';
 import { allocateFEFO, DEFAULT_EXPIRY } from '../lib/stock.js';
 import { saveSale, audit, tierFor } from '../lib/sales.js';
+import { allocateCart, buildView } from '../lib/cart.js';
+import { returnedSoFar, returnLeft, buildReturn, saveReturn } from '../lib/returns.js';
 import { customerDue } from '../lib/parties.js';
 import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum } from '../lib/util.js';
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
-import { unitList, toBase, fromBase, plain, priceFor } from '../lib/units.js';
+import { unitList, toBase, fromBase, plain } from '../lib/units.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
 // Payment tiles on the counter: the icon says what it is, the key badge says how to press it.
@@ -23,60 +24,8 @@ const PAY_TILES = [
   { mode: 'credit', label: 'Udhaar', key: 'F12', icon: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M21.38 5.63a2.12 2.12 0 0 0-3-3l-5.01 5.01a2 2 0 0 0-.51.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.51Z"/>' },
 ];
 
-// Units: the cart keeps every quantity in the product's base unit; `unit` is only how the cashier sees it.
-function unitInfo(p, c) {
-  const L = unitList(p);
-  if (!L.length) return {};
-  const cur = L[c.unit] || L.find(x => x.base);
-  return { units: L, unitIdx: cur.i, unitName: cur.name, unitFactor: cur.factor };
-}
 const r2e = v => Math.round(v * 1e4) / 1e4;
 const stepFor = (l, f) => (f <= 0.01 ? 50 : l.uom === 'KG' && f === 1 ? 0.25 : 1);
-
-// Batch allocation (FEFO) for every cart line (cart quantities are in the base unit). Lines whose
-// quantity did not change keep their earlier result, so a 60-item bill does not re-read every batch per scan.
-async function allocateCart(cart, storeId, cfg, cache = new Map()) {
-  const m = {};
-  for (const c of cart) {
-    const q = Number(c.qty) || 0;
-    const hit = cache.get(c.key);
-    if (hit && hit.forQty === q && hit.productId === c.productId) { m[c.key] = hit; continue; }
-    const res = { ...(await allocateFEFO(c.productId, q, storeId, cfg)), forQty: q, productId: c.productId };
-    cache.set(c.key, res);
-    m[c.key] = res;
-  }
-  return m;
-}
-
-// Everything on screen (and what gets saved) is worked out here, from the cart and its allocations.
-// composition: the store is a composition dealer — no GST on bills (the item's rate is kept as rateWas).
-// Wholesale bills skip shop offers unless the owner turned them on (Settings › Loyalty & credit).
-function buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode }) {
-  const composition = !!settings.gstFiling?.composition;
-  const lines = cart.map(c => {
-    const p = pmap[c.productId];
-    if (!p) return null;
-    const ui = unitInfo(p, c);
-    const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
-    const a = allocs[c.key] || { alloc: [], blocked: [] };
-    const stale = !allocs[c.key] || allocs[c.key].forQty !== (Number(c.qty) || 0);
-    const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-    return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: composition ? 0 : p.gst, ...(composition ? { rateWas: p.gst } : {}), qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, stale, override: c.price != null, ...ui };
-  }).filter(Boolean);
-  const noOffers = priceMode === 'wholesale' && !settings.wholesaleOffers;
-  const o = applyOffers(lines, noOffers ? [] : offers, { marginOverride: lines.some(l => l.override) });
-  const billLines = lines.map(l => ({
-    ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
-    offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
-  }));
-  const pre = computeBill(billLines, o.billDiscounts);
-  const maxPts = customer ? Math.max(0, Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100))) : 0;
-  const usePts = Math.min(points, maxPts);
-  const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
-  const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
-  const bill = computeBill(billLines, bd, inter);
-  return { lines, billLines, bill, maxPts, usePts, inter, stale: lines.some(l => l.stale), blocked: lines.filter(l => !l.stale && !l.alloc.alloc.length && l.alloc.blocked.length) };
-}
 
 export default function POS() {
   const { user, settings, storeId, param, go } = useApp();
@@ -445,14 +394,15 @@ export default function POS() {
         if (cart.length && !(await confirm('Replace the current bill with the held one?', 'Replace'))) return;
         setCart(h.cart); setPriceMode(h.priceMode || 'retail'); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
       }} />}
-      {modal?.type === 'return' && <ReturnModal settings={settings} onClose={() => setModal(null)} onDone={async (bill, payments, orig) => {
+      {modal?.type === 'return' && <ReturnModal onClose={() => setModal(null)} onDone={async (bill, mode, orig) => {
         if (bill.totals.payable > (settings.supervisorRefundLimit || 500)) {
           const m = await approve(`Refund of ${inr(bill.totals.payable)} against bill ${orig.no}`);
           if (!m) return;
         }
-        const cust = orig.customerId ? await db.customers.get(orig.customerId) : null;
-        const sale = await saveSale({ bill, payments, customer: cust, user, shiftId: shift.id, storeId, type: 'return', origNo: orig.no });
-        setModal({ type: 'receipt', sale });
+        try {
+          const sale = await saveReturn({ sale: orig, bill, mode, user, shiftId: shift.id, storeId });
+          setModal({ type: 'receipt', sale });
+        } catch (e) { toast('Return not saved: ' + (e.message || e), 'bad'); }
       }} />}
       {modal?.type === 'shift' && <ShiftModal shift={shift} mode={modal.mode} settings={settings} onClose={() => setModal(null)} onClosed={() => { setModal(null); go('dashboard'); }} />}
     </div>
@@ -462,11 +412,11 @@ export default function POS() {
 function OpenShift({ storeId }) {
   const { user, settings } = useApp();
   const [cash, setCash] = useState('2000');
-  const open = async e => {
+  const open = useOnce(async e => {
     e.preventDefault();
     await db.shifts.add({ id: uid('sh_'), userId: user.id, userName: user.name, storeId, counter: settings.terminal || 'T1', openedAt: Date.now(), openingCash: Number(cash) || 0, closedAt: null });
-    audit('shift_open', { float: Number(cash) }, user);
-  };
+    await audit('shift_open', { float: Number(cash) }, user);
+  });
   return (
     <div className="stack" style={{ maxWidth: 440 }}>
       <h1>Start your shift</h1>
@@ -664,36 +614,25 @@ function RecallModal({ onClose, onPick }) {
 function ReturnModal({ onClose, onDone }) {
   const [no, setNo] = useState('');
   const [sale, setSale] = useState(null);
-  const [qty, setQty] = useState({});
+  const [done, setDone] = useState(null);
+  const [qty, setQty] = useState({});           // original line → quantity to return, in the unit it was sold in
   const [mode, setMode] = useState('cash');
   const [err, setErr] = useState('');
   const find = async e => {
     e?.preventDefault();
     const s = await db.sales.where('no').equals(no.trim().toUpperCase()).first() || await db.sales.where('no').equals(no.trim()).first();
     if (!s || s.type !== 'sale') { setErr('No sale with that bill number.'); return; }
-    const earlier = (await db.sales.where('origNo').equals(s.no).toArray()).filter(x => x.type === 'return');
-    const returned = {};
-    earlier.forEach(r => r.lines.forEach(l => (returned[l.productId] = (returned[l.productId] || 0) + l.qty)));
-    setSale({ ...s, returned }); setErr('');
+    setDone(await returnedSoFar(s)); setSale(s); setQty({}); setErr('');
+    if (!s.customerId) setMode(m => (m === 'credit' ? 'cash' : m));
   };
   const recent = useLive(() => db.sales.orderBy('ts').reverse().filter(s => s.type === 'sale').limit(5).toArray(), [], []);
-  const build = () => {
-    const lines = sale.lines.map(l => {
-      const q = Math.min(Number(qty[l.productId] || 0), l.qty - (sale.returned[l.productId] || 0));
-      if (!(q > 0)) return null;
-      const f = q / l.qty;
-      const sc = k => r2(l[k] * f);
-      return { ...l, qty: q, gross: sc('gross'), lineDisc: sc('lineDisc'), billDisc: sc('billDisc'), taxable: sc('taxable'), cgst: sc('cgst'), sgst: sc('sgst'), igst: sc('igst'), total: sc('total'),
-        batches: [{ batchId: l.batches?.[0]?.batchId || null, batchNo: l.batches?.[0]?.batchNo, qty: q }] };
-    }).filter(Boolean);
-    const T = k => r2(sum(lines, l => l[k]));
-    const exact = T('total');
-    const payable = Math.round(exact);
-    return { lines, billDiscounts: [], totals: { gross: T('gross'), lineDisc: T('lineDisc'), billDisc: T('billDisc'), taxable: T('taxable'), cgst: T('cgst'), sgst: T('sgst'), igst: T('igst'), exact, roundOff: r2(payable - exact), payable, mrpTotal: 0, savings: 0, items: lines.length, qty: T('qty') } };
-  };
-  const bill = sale ? build() : null;
+  const fac = l => l.unitFactor || 1;
+  const show = (l, v) => plain(v / fac(l));
+  const left = sale ? returnLeft(sale, done) : [];
+  const bill = sale ? buildReturn(sale, sale.lines.map((l, i) => (Number(qty[i]) || 0) * fac(l)), done) : null;
+  const allBack = sale && left.every(v => v <= 1e-9);
   return (
-    <Modal title="Return items" wide onClose={onClose} footer={sale && <><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!bill.lines.length} onClick={() => onDone(bill, [{ mode, amount: bill.totals.payable }], sale)}>Refund {inr(bill.totals.payable)}</Btn></>}>
+    <Modal title="Return items" wide onClose={onClose} footer={sale && <><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!bill.lines.length} onClick={() => onDone(bill, mode, sale)}>Refund {inr(bill.totals.payable)}</Btn></>}>
       {!sale ? (
         <form className="stack" onSubmit={find}>
           <Input label="Bill number (from receipt or WhatsApp bill)" value={no} onChange={e => setNo(e.target.value)} autoFocus id="retno" />
@@ -703,14 +642,16 @@ function ReturnModal({ onClose, onDone }) {
         </form>
       ) : (
         <div className="stack">
-          <p>Bill <b>{sale.no}</b> · {fmtDT(sale.ts)} · {inr(sale.totals.payable)} {sale.customerName && `· ${sale.customerName}`}</p>
+          <p>Bill <b>{sale.no}</b> · {fmtDT(sale.ts)} · {inr(sale.totals.payable)} {sale.customerName && `· ${sale.customerName}`}{sale.b2b?.gstin ? ` · GSTIN ${sale.b2b.gstin}` : ''}</p>
+          {allBack && <p className="note">Everything on this bill has already been returned.</p>}
           <table className="tbl"><thead><tr><th>Item</th><th className="num">Bought</th><th className="num">Already returned</th><th className="num">Return now</th></tr></thead>
-            <tbody>{sale.lines.map(l => (
-              <tr key={l.productId}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{sale.returned[l.productId] || 0}</td>
-                <td className="num"><input className="input" style={{ width: 90 }} type="number" min="0" max={l.qty} value={qty[l.productId] || ''} onChange={e => setQty({ ...qty, [l.productId]: e.target.value })} aria-label={`Return quantity for ${l.name}`} /></td></tr>
+            <tbody>{sale.lines.map((l, i) => (
+              <tr key={i}><td>{l.name}{l.unitName ? <span className="small muted"> ({l.unitName})</span> : null}</td><td className="num">{show(l, l.qty)}</td><td className="num">{show(l, done.qty[i] || 0)}</td>
+                <td className="num"><input className="input" style={{ width: 90 }} type="number" min="0" max={show(l, left[i])} step="any" disabled={left[i] <= 1e-9} value={qty[i] ?? ''} onChange={e => setQty({ ...qty, [i]: e.target.value })} aria-label={`Return quantity for ${l.name}`} /></td></tr>
             ))}</tbody></table>
-          <Select label="Refund by" value={mode} onChange={e => setMode(e.target.value)} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card reversal' }, { value: 'credit', label: 'Adjust in customer credit' }]} id="refmode" />
-          <p className="small muted">Purchase price is locked to the original bill. A GST credit note is made automatically. Stock goes back to the original batch.</p>
+          <Select label="Refund by" value={mode} onChange={e => setMode(e.target.value)} options={[{ value: 'cash', label: 'Cash' }, { value: 'upi', label: 'UPI' }, { value: 'card', label: 'Card reversal' }, ...(sale.customerId ? [{ value: 'credit', label: 'Adjust in customer credit' }] : [])]} id="refmode" />
+          {bill.pointsBack > 0 && <p className="small muted">Points earned on these items are taken back: {bill.pointsBack}.</p>}
+          <p className="small muted">Purchase price is locked to the original bill. A GST credit note is made automatically. Stock goes back to the batch it was sold from.</p>
         </div>
       )}
     </Modal>

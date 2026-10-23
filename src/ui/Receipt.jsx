@@ -16,7 +16,7 @@ export function receiptText(sale, s) {
   if (sale.totals.lineDisc + sale.totals.billDisc > 0) L.push(`Discounts: −${inr(sale.totals.lineDisc + sale.totals.billDisc)}`);
   L.push(`*Total: ${inr(sale.totals.payable)}*`);
   if (sale.totals.savings > 0) L.push(`You saved ${inr(sale.totals.savings)} on MRP today 🎉`);
-  if (sale.pointsEarned) L.push(`Points earned: ${sale.pointsEarned}`);
+  if (sale.pointsEarned) L.push(sale.pointsEarned > 0 ? `Points earned: ${sale.pointsEarned}` : `Points taken back: ${-sale.pointsEarned}`);
   L.push(`Paid by: ${sale.payments.map(p => p.mode.toUpperCase()).join(' + ')}`);
   L.push('');
   L.push(s.billFooter || 'Thank you for shopping with us!');
@@ -77,7 +77,7 @@ export default function Receipt({ sale, settings: s }) {
       <hr />
       {sale.payments.map((p, i) => <div key={i}>{p.mode.toUpperCase()} {inr(p.amount)}{p.ref ? ` · ${p.ref}` : ''}{p.change ? ` · change ${inr(p.change)}` : ''}</div>)}
       {t.savings > 0 && <div className="c" style={{ marginTop: 6 }}><b>You saved {inr(t.savings)} on MRP</b></div>}
-      {sale.pointsEarned ? <div className="c">Points earned: {sale.pointsEarned}</div> : null}
+      {sale.pointsEarned ? <div className="c">{sale.pointsEarned > 0 ? `Points earned: ${sale.pointsEarned}` : `Points taken back: ${-sale.pointsEarned}`}</div> : null}
       <div className="c" style={{ marginTop: 6, fontSize: 9 }}>Chain {sale.hash?.slice(0, 16)}</div>
       <div className="c">{s.billFooter || 'Thank you! Visit again.'}</div>
     </div>

@@ -1,27 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
-import { useApp, useLive, useToast, useApprove, PageHead, Table, Btn, Input, Select, Tabs, Card, Badge, SearchBox, Modal } from '../ui/kit.jsx';
+import { useApp, useLive, useToast, useApprove, PageHead, Table, Btn, Input, Select, Tabs, Card, Badge, SearchBox, Modal, useOnce } from '../ui/kit.jsx';
 import { inr, num, r2, fmtDT, uid, sum } from '../lib/util.js';
 import { moveStock, expiryZone, daysLeft, DEFAULT_EXPIRY, stockValue } from '../lib/stock.js';
-import { post } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
+import { writeOff, transferStock, REASONS } from '../lib/stockOps.js';
 import { unitList, breakdown, plain } from '../lib/units.js';
 import ProductPicker from '../ui/ProductPicker.jsx';
 
-const REASONS = { damaged: 'Damaged / broken', expired: 'Expired', theft: 'Missing / theft', count: 'Count correction', sample: 'Free sample / own use' };
-
-// Writing off goods: stock leaves the books, and GST input credit is reversed for lost,
-// destroyed, expired or stolen goods (CGST Act s.17(5)(h)). Count corrections upward add stock back.
-export async function writeOff({ batch, product, qty, reason, user, approvedBy }) {
-  const value = r2(qty * batch.cost);
-  await moveStock({ batchId: batch.id, productId: product.id, storeId: batch.storeId, qty: -qty, type: 'writeoff', ref: reason, note: approvedBy ? `approved by ${approvedBy}` : '' });
-  const itc = reason === 'count' && qty < 0 ? 0 : r2((value * (product.gst || 0)) / 100);
-  const lines = qty >= 0
-    ? [{ acc: 'shrinkage', dr: r2(value + itc) }, { acc: 'inventory', cr: value }, ...(itc ? [{ acc: 'in_cgst', cr: r2(itc / 2) }, { acc: 'in_sgst', cr: r2(itc - r2(itc / 2)) }] : [])]
-    : [{ acc: 'inventory', dr: -value }, { acc: 'shrinkage', cr: -value }];
-  await post({ ref: 'WO-' + Date.now().toString().slice(-6), type: 'writeoff', narration: `${REASONS[reason]}: ${product.name} × ${qty}`, lines });
-  await audit('write_off', { product: product.name, batch: batch.batchNo, qty, value, reason, approvedBy }, user);
-}
+export { writeOff } from '../lib/stockOps.js';
 
 export default function Stock() {
   const { storeId, settings, user } = useApp();
@@ -97,7 +84,7 @@ function Adjust({ products, batches, pmap, settings, user, byProd }) {
   const bs = (byProd.get(pid) || []).filter(b => b.status === 'active');
   const batch = bs.find(b => b.id === bid);
   const value = batch ? r2(Number(qty) * batch.cost) : 0;
-  const submit = async e => {
+  const submit = useOnce(async e => {
     e.preventDefault();
     if (!batch || !Number(qty)) return;
     let approvedBy = null;
@@ -109,7 +96,7 @@ function Adjust({ products, batches, pmap, settings, user, byProd }) {
     await writeOff({ batch, product: pmap[pid], qty: Number(qty), reason, user, approvedBy });
     toast(`Written off ${qty} × ${pmap[pid].name}. GST input credit reversed where needed.`);
     setQty('');
-  };
+  });
   return (
     <Card title="Remove damaged, expired or missing stock">
       <form className="grid g3" onSubmit={submit}>
@@ -166,19 +153,14 @@ function Transfer({ products, batches, pmap, storeId, user }) {
   const [qty, setQty] = useState('');
   const bs = batches.filter(b => b.status === 'active' && b.qty > 0);
   const batch = bs.find(b => b.id === bid);
-  const go = async e => {
+  const go = useOnce(async e => {
     e.preventDefault();
     const q = Number(qty);
     if (!batch || !to || !(q > 0) || q > batch.qty) return;
-    const ref = 'STO-' + Date.now().toString().slice(-6);
-    await moveStock({ batchId: batch.id, productId: batch.productId, storeId, qty: -q, type: 'transfer_out', ref });
-    const nid = uid('b_');
-    await db.batches.add({ ...batch, id: nid, storeId: to, qty: 0, receivedAt: Date.now() });
-    await moveStock({ batchId: nid, productId: batch.productId, storeId: to, qty: q, type: 'transfer_in', ref });
-    await audit('transfer', { product: pmap[batch.productId]?.name, qty: q, from: storeId, to }, user);
+    try { await transferStock({ batch, qty: q, to, user, productName: pmap[batch.productId]?.name }); } catch (err) { toast(err.message, 'bad'); return; }
     toast(`Moved ${q} × ${pmap[batch.productId]?.name} to ${stores.find(s => s.id === to)?.name}. Batch and expiry go with it.`);
     setQty('');
-  };
+  });
   void products;
   return (
     <Card title="Send stock to another store">

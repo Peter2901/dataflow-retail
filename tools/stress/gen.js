@@ -81,6 +81,9 @@ window.__gen = async function gen(opt) {
   const seq = {}, chain = {}, hot = products.slice(0, 3000);
   const step = (O.days * 864e5) / O.sales;
   let S = [], M = [], J = [], A = [];
+  // Round-off line, as the app writes it, so every generated entry balances to the paisa.
+  const balance = (paid, booked, sg) => { const d = r2(paid - booked); return !d ? [] : [{ acc: 'roundoff', [(d > 0) === (sg > 0) ? 'cr' : 'dr']: Math.abs(d) }]; };
+  const usedCust = new Set();
   const flush = async () => { await put('sales', S); await put('stockMoves', M); await put('journal', J); await put('audit', A); S = []; M = []; J = []; A = []; };
   for (let i = 0; i < O.sales; i++) {
     let ts = now - O.days * 864e5 + i * step; const hh = new Date(ts).getHours(); if (hh < 9) ts += (9 - hh) * 36e5; if (ts > now - 60000) ts = now - 60000 - (O.sales - i) * 10;
@@ -110,11 +113,15 @@ window.__gen = async function gen(opt) {
       billDiscounts: [], payments: [{ mode, amount: payable }], pointsUsed: 0, pointsEarned: 0, chainSeq: chain[term], prevHash: 'g', hash: 'g' + i, updatedAt: ts };
     S.push(sale);
     const sg = isRet ? -1 : 1;
-    J.push({ id: 'JS' + i, ts, ref: no, type: isRet ? 'credit_note' : 'sale', narration: 'Sale ' + no, lines: [{ acc: mode === 'credit' ? 'cust:' + cust.id : mode === 'upi' ? 'bank' : mode === 'card' ? 'card' : 'cash', [sg > 0 ? 'dr' : 'cr']: payable }, { acc: 'sales', [sg > 0 ? 'cr' : 'dr']: r2(tx) }, { acc: 'out_cgst', [sg > 0 ? 'cr' : 'dr']: r2(cg) }, { acc: 'out_sgst', [sg > 0 ? 'cr' : 'dr']: r2(sgt) }, { acc: 'cogs', [sg > 0 ? 'dr' : 'cr']: r2(cogs) }, { acc: 'inventory', [sg > 0 ? 'cr' : 'dr']: r2(cogs) }], updatedAt: ts });
+    J.push({ id: 'JS' + i, ts, ref: no, type: isRet ? 'credit_note' : 'sale', narration: 'Sale ' + no, lines: [{ acc: mode === 'credit' ? 'cust:' + cust.id : mode === 'upi' ? 'bank' : mode === 'card' ? 'card' : 'cash', [sg > 0 ? 'dr' : 'cr']: payable }, { acc: 'sales', [sg > 0 ? 'cr' : 'dr']: r2(tx) }, { acc: 'out_cgst', [sg > 0 ? 'cr' : 'dr']: r2(cg) }, { acc: 'out_sgst', [sg > 0 ? 'cr' : 'dr']: r2(sgt) }, { acc: 'cogs', [sg > 0 ? 'dr' : 'cr']: r2(cogs) }, { acc: 'inventory', [sg > 0 ? 'cr' : 'dr']: r2(cogs) }, ...balance(payable, r2(tx) + r2(cg) + r2(sgt), sg)], updatedAt: ts });
+    if (mode === 'credit') usedCust.add(cust.id);
     A.push({ id: 'AU' + i, ts, action: isRet ? 'return' : 'bill', detail: { no, amount: payable }, userId: 'u2', userName: 'Cashier ' + k, dev: term, prevHash: 'g', hash: 'g', updatedAt: ts, _oc: term === 'T1' ? undefined : term });
     if (S.length >= 2500) await flush();
   }
   await flush();
+  // Party accounts, as the app makes them the first time a customer buys on credit or a supplier bill is saved.
+  await putMany('accounts', [...suppliers.map(x => ({ id: 'supp:' + x.id, name: x.name, group: 'liability', party: 'supp', partyId: x.id })),
+    ...[...usedCust].map(id => ({ id: 'cust:' + id, name: customers.find(c => c.id === id)?.name || id, group: 'asset', party: 'cust', partyId: id }))]);
   // This device is counter T1: continue its bill numbers and chain after the generated ones.
   const curFy = fyShort(now);
   await put('settings', [{ key: `seq_S1T1_${curFy}`, value: seq[`S1T1_${curFy}`] || 0 }, { key: 'chain_S1', value: chain.T1 || 0 }]);

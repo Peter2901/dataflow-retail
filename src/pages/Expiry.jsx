@@ -4,7 +4,7 @@ import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Badge, Car
 import { inr, num, r2, sum, daysBetween, waLink } from '../lib/util.js';
 import { expiryZone, daysLeft, DEFAULT_EXPIRY } from '../lib/stock.js';
 import { createDebitNote } from '../lib/purchasing.js';
-import { writeOff } from './Stock.jsx';
+import { writeOff } from '../lib/stockOps.js';
 import { audit } from '../lib/sales.js';
 
 const RUNGS = [

@@ -114,7 +114,9 @@ export function saveSale(args) {
 
 // Everything a bill changes (bill, stock, customer, books, audit) is written in ONE database
 // transaction: it is all saved or none of it (power cut, crash), and it is one disk write, not 25.
-async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail', composition = false }) {
+async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail', composition = false, pointsBack = 0 }) {
+  if (payments.some(p => p.mode === 'credit') && !customer) throw new Error('Credit (udhaar) needs a customer on the bill.');
+  if (!bill.lines?.length) throw new Error('The bill has no items.');
   const settings = await getSettings();
   const no = await nextInvoiceNo(settings, ts);
   const key = chainKey({ no });
@@ -135,6 +137,8 @@ async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, t
     const paid = sale.totals.payable - pointsUsed;
     sale.pointsEarned = Math.floor((paid / 100) * rate * tier.mult);
   }
+  // A return takes back the points earned on what came back.
+  if (customer && type === 'return' && pointsBack > 0) sale.pointsEarned = -Math.floor(pointsBack);
   sale.hash = await sha256(chainInput(sale));
   const custAcc = customer && payments.some(p => p.mode === 'credit') ? `cust:${customer.id}` : null;
   const entry = saleEntry(sale, custAcc);
@@ -157,7 +161,7 @@ async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, t
       }
       if (customer) {
         await addBillToCustomer(customer.id, sale);
-        if (sale.pointsEarned) await db.loyaltyTx.add({ customerId: customer.id, ts, type: 'earn', points: sale.pointsEarned, ref: no });
+        if (sale.pointsEarned) await db.loyaltyTx.add({ customerId: customer.id, ts, type: sale.pointsEarned < 0 ? 'return' : 'earn', points: sale.pointsEarned, ref: no });
         if (pointsUsed) await db.loyaltyTx.add({ customerId: customer.id, ts, type: 'redeem', points: -pointsUsed, ref: no });
         if (custAcc && !(await db.accounts.get(custAcc))) await db.accounts.add({ id: custAcc, name: customer.name, group: 'asset', party: 'cust', partyId: customer.id });
       }
