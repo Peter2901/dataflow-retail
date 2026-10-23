@@ -5,6 +5,7 @@ import { inr, num, r2, fmtDT, uid, sum } from '../lib/util.js';
 import { moveStock, expiryZone, daysLeft, DEFAULT_EXPIRY, stockValue } from '../lib/stock.js';
 import { post } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
+import { unitList, breakdown, plain } from '../lib/units.js';
 
 const REASONS = { damaged: 'Damaged / broken', expired: 'Expired', theft: 'Missing / theft', count: 'Count correction', sample: 'Free sample / own use' };
 
@@ -47,7 +48,7 @@ function ByItem({ products, batches, cfg }) {
   const [open, setOpen] = useState(null);
   const rows = useMemo(() => products.filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase())).map(p => {
     const bs = batches.filter(b => b.productId === p.id && b.status === 'active');
-    const qty = r2(sum(bs, b => b.qty));
+    const qty = Math.round(sum(bs, b => b.qty) * 1000) / 1000;
     const next = bs.filter(b => b.qty > 0 && b.expiry).sort((a, b) => a.expiry.localeCompare(b.expiry))[0];
     return { ...p, qty, value: r2(sum(bs.filter(b => b.qty > 0), b => b.qty * b.cost)), batchCount: bs.filter(b => b.qty > 0).length, next };
   }).sort((a, b) => a.name.localeCompare(b.name)), [products, batches, q]);
@@ -56,7 +57,7 @@ function ByItem({ products, batches, cfg }) {
       <SearchBox value={q} onChange={setQ} placeholder="Search item" />
       <div className="card"><Table rows={rows} onRow={setOpen} cols={[
         { label: 'Item', render: p => <><b>{p.name}</b><div className="small muted">{p.rack}</div></> },
-        { label: 'On hand', num: true, render: p => <span style={{ color: p.qty < 0 ? 'var(--bad)' : p.qty <= p.reorderMin ? 'var(--warn)' : undefined }}>{num(p.qty, 2)} {p.uom}</span> },
+        { label: 'On hand', num: true, render: p => <span style={{ color: p.qty < 0 ? 'var(--bad)' : p.qty <= p.reorderMin ? 'var(--warn)' : undefined }}>{unitList(p).length ? <>{breakdown(p, p.qty)}<div className="small muted">{plain(p.qty)} {p.uom}</div></> : <>{num(p.qty, 2)} {p.uom}</>}</span> },
         { label: 'Batches', num: true, key: 'batchCount' },
         { label: 'Next expiry', render: p => p.next ? <Badge tone={expiryZone(daysLeft(p.next.expiry), cfg).tone}>{p.next.expiry}</Badge> : '—' },
         { label: 'Value at cost', num: true, render: p => inr(p.value, 0) },
@@ -66,7 +67,7 @@ function ByItem({ products, batches, cfg }) {
           <Table rows={batches.filter(b => b.productId === open.id).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)))} cols={[
             { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', render: b => b.expiry || '—' },
             { label: 'Status', render: b => b.status !== 'active' ? <Badge tone="bad">{b.status}</Badge> : <Badge tone={expiryZone(daysLeft(b.expiry), cfg).tone}>{expiryZone(daysLeft(b.expiry), cfg).label}</Badge> },
-            { label: 'Qty', num: true, render: b => num(b.qty, 2) }, { label: 'Cost', num: true, render: b => inr(b.cost) }, { label: 'Received', render: b => fmtDT(b.receivedAt) },
+            { label: 'Qty', num: true, render: b => unitList(open).length ? <>{breakdown(open, b.qty)}<div className="small muted">{plain(b.qty)} {open.uom}</div></> : num(b.qty, 2) }, { label: 'Cost', num: true, render: b => inr(b.cost) }, { label: 'Received', render: b => fmtDT(b.receivedAt) },
           ]} />
         </Modal>
       )}

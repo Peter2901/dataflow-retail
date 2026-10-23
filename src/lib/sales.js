@@ -114,7 +114,7 @@ export function saveSale(args) {
 
 // Everything a bill changes (bill, stock, customer, books, audit) is written in ONE database
 // transaction: it is all saved or none of it (power cut, crash), and it is one disk write, not 25.
-async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, level = 'retail' }) {
+async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail' }) {
   const settings = await getSettings();
   const no = await nextInvoiceNo(settings, ts);
   const key = chainKey({ no });
@@ -125,7 +125,7 @@ async function saveSaleNow({ bill, payments, customer, user, shiftId, storeId, t
     id: uid('s_'), no, ts, storeId, type, origNo, status: 'done', shiftId, orderId,
     cashierId: user?.id, cashierName: user?.name, customerId: customer?.id || null, customerName: customer?.name || '',
     customerPhone: customer?.phone || '', b2b, lines: bill.lines, totals: bill.totals, billDiscounts: bill.billDiscounts || [],
-    payments, pointsUsed, pointsEarned: 0, prevHash: head.hash, ...(level && level !== 'retail' ? { priceLevel: level } : {}),
+    payments, pointsUsed, pointsEarned: 0, prevHash: head.hash, ...(priceMode === 'wholesale' ? { priceMode } : {}),
   };
   // Loyalty: points on what was paid (not on points used), with tier multiplier.
   if (customer && type === 'sale') {

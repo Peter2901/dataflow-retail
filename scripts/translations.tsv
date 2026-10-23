@@ -1092,4 +1092,67 @@ To check	जाँचने को	ଯାଞ୍ଚ ପାଇଁ
 Sold in packs / loose by kg	पैक में / खुला किलो में	ପ୍ୟାକରେ / ଖୋଲା କିଲୋରେ
 Fill suggested HSN	सुझाया HSN भरें	ପରାମର୍ଶିତ HSN ଭରନ୍ତୁ
 Download the list to check	जाँच की सूची डाउनलोड करें	ଯାଞ୍ଚ ତାଲିକା ଡାଉନଲୋଡ୍ କରନ୍ତୁ
-Load the product Excel	सामान की Excel लोड करें	ସାମଗ୍ରୀ Excel ଲୋଡ୍ କରନ୍ତୁ
+Dashboard	डैशबोर्ड	ଡ୍ୟାସବୋର୍ଡ
+Stock & buying	स्टॉक और खरीद	ଷ୍ଟକ୍ ଓ କିଣା
+Offers & prices	ऑफ़र और दाम	ଅଫର ଓ ଦାମ
+Customers & points	ग्राहक और पॉइंट	ଗ୍ରାହକ ଓ ପଏଣ୍ଟ
+Udhaar & dues	उधार और बकाया	ଉଧାର ଓ ବାକି
+Store & owner	दुकान और मालिक	ଦୋକାନ ଓ ମାଲିକ
+Store & owner details	दुकान और मालिक की जानकारी	ଦୋକାନ ଓ ମାଲିକଙ୍କ ତଥ୍ୟ
+Fill this once. It prints on every bill and is used for GST, UPI and WhatsApp messages.	इसे एक बार भरें। यह हर बिल पर छपता है और GST, UPI और WhatsApp संदेशों में काम आता है।	ଏହା ଥରେ ଭରନ୍ତୁ। ଏହା ପ୍ରତି ବିଲରେ ଛପାହୁଏ ଓ GST, UPI ଓ WhatsApp ମେସେଜରେ ବ୍ୟବହାର ହୁଏ।
+{a} of {b} must-fill done	{b} में से {a} ज़रूरी भरे	{b} ମଧ୍ୟରୁ {a} ଜରୁରୀ ଭରାଗଲା
+Save details	जानकारी सेव करें	ତଥ୍ୟ ସେଭ୍ କରନ୍ତୁ
+Only the owner can change these details.	यह जानकारी सिर्फ़ मालिक बदल सकते हैं।	ଏହି ତଥ୍ୟ କେବଳ ମାଲିକ ବଦଳାଇପାରିବେ।
+GST & licences	GST और लाइसेंस	GST ଓ ଲାଇସେନ୍ସ
+Payments & bill	भुगतान और बिल	ପେମେଣ୍ଟ ଓ ବିଲ୍
+How your bill top looks	आपके बिल का ऊपरी हिस्सा ऐसा दिखेगा	ଆପଣଙ୍କ ବିଲର ଉପର ଭାଗ ଏପରି ଦେଖାଯିବ
+Store name *	दुकान का नाम *	ଦୋକାନର ନାମ *
+Store name in Hindi / Odia (on bill)	हिंदी / ओड़िया में दुकान का नाम (बिल पर)	ହିନ୍ଦୀ / ଓଡ଼ିଆରେ ଦୋକାନର ନାମ (ବିଲରେ)
+Address *	पता *	ଠିକଣା *
+City *	शहर *	ସହର *
+PIN code *	पिन कोड *	ପିନ୍ କୋଡ୍ *
+State *	राज्य *	ରାଜ୍ୟ *
+Store phone *	दुकान का फ़ोन *	ଦୋକାନର ଫୋନ୍ *
+Logo (on bill)	लोगो (बिल पर)	ଲୋଗୋ (ବିଲରେ)
+Upload logo	लोगो अपलोड करें	ଲୋଗୋ ଅପଲୋଡ୍ କରନ୍ତୁ
+Change logo	लोगो बदलें	ଲୋଗୋ ବଦଳାନ୍ତୁ
+Owner name *	मालिक का नाम *	ମାଲିକଙ୍କ ନାମ *
+Mobile *	मोबाइल *	ମୋବାଇଲ୍ *
+WhatsApp for daily summary	रोज़ के सारांश के लिए WhatsApp	ଦୈନିକ ସାରାଂଶ ପାଇଁ WhatsApp
+Email (for reports)	ईमेल (रिपोर्ट के लिए)	ଇମେଲ୍ (ରିପୋର୍ଟ ପାଇଁ)
+GSTIN *	GSTIN *	GSTIN *
+Legal name (as on GST certificate) *	क़ानूनी नाम (GST प्रमाणपत्र जैसा) *	ଆଇନଗତ ନାମ (GST ପ୍ରମାଣପତ୍ର ଅନୁସାରେ) *
+How you file GST	आप GST कैसे फ़ाइल करते हैं	ଆପଣ GST କିପରି ଫାଇଲ୍ କରନ୍ତି
+Monthly	मासिक	ମାସିକ
+Composition scheme	कंपोज़िशन स्कीम	କମ୍ପୋଜିସନ୍ ସ୍କିମ୍
+FSSAI licence no.	FSSAI लाइसेंस नंबर	FSSAI ଲାଇସେନ୍ସ ନମ୍ବର
+Shop & establishment no.	शॉप एंड एस्टैब्लिशमेंट नंबर	ଦୋକାନ ଓ ସଂସ୍ଥାନ ନମ୍ବର
+Your CA / accountant (name, phone)	आपके CA / अकाउंटेंट (नाम, फ़ोन)	ଆପଣଙ୍କ CA / ଆକାଉଣ୍ଟାଣ୍ଟ (ନାମ, ଫୋନ୍)
+UPI ID *	UPI ID *	UPI ID *
+Thank-you line on bill	बिल पर धन्यवाद पंक्ति	ବିଲରେ ଧନ୍ୟବାଦ ଧାଡି
+Item names on bill	बिल पर सामान के नाम	ବିଲରେ ଜିନିଷର ନାମ
+English + Hindi/Odia name	अंग्रेज़ी + हिंदी/ओड़िया नाम	ଇଂରାଜୀ + ହିନ୍ଦୀ/ଓଡ଼ିଆ ନାମ
+English only	सिर्फ़ अंग्रेज़ी	କେବଳ ଇଂରାଜୀ
+Counter codes (T1, T2…) and bill numbers are in Settings › Store & GST on each counter.	काउंटर कोड (T1, T2…) और बिल नंबर हर काउंटर पर सेटिंग्स › दुकान और GST में हैं।	କାଉଣ୍ଟର କୋଡ୍ (T1, T2…) ଓ ବିଲ୍ ନମ୍ବର ପ୍ରତି କାଉଣ୍ଟରରେ ସେଟିଂସ୍ › ଦୋକାନ ଓ GST ରେ ଅଛି।
+All must-fill details are done.	सभी ज़रूरी जानकारी भरी गई।	ସବୁ ଜରୁରୀ ତଥ୍ୟ ଭରାଗଲା।
+Still needed:	अभी बाकी:	ଏବେ ବାକି:
+GSTIN looks right	GSTIN सही लगता है	GSTIN ଠିକ୍ ଲାଗୁଛି
+This GSTIN does not pass the check	यह GSTIN जाँच में सही नहीं	ଏହି GSTIN ଯାଞ୍ଚରେ ଠିକ୍ ନୁହେଁ
+15 characters	15 अक्षर	15 ଅକ୍ଷର
+PIN code must be 6 digits.	पिन कोड 6 अंकों का होना चाहिए।	ପିନ୍ କୋଡ୍ 6 ଅଙ୍କର ହେବା ଦରକାର।
+Phone numbers need 10 digits.	फ़ोन नंबर 10 अंकों के होने चाहिए।	ଫୋନ୍ ନମ୍ବର 10 ଅଙ୍କର ହେବା ଦରକାର।
+Udhaar	उधार	ଉଧାର
+Money	पैसा	ଟଙ୍କା
+Light or dark screen	हल्की या गहरी स्क्रीन	ହାଲୁକା କିମ୍ବା ଗାଢ ସ୍କ୍ରିନ୍
+Units (optional)	इकाइयाँ (वैकल्पिक)	ୟୁନିଟ୍ (ଇଚ୍ଛାଧୀନ)
+Buy in a big unit, sell in a small one. Leave empty if the product has one unit.	बड़ी इकाई में खरीदें, छोटी में बेचें। एक ही इकाई हो तो खाली छोड़ें।	ବଡ଼ ୟୁନିଟ୍‌ରେ କିଣନ୍ତୁ, ଛୋଟରେ ବିକନ୍ତୁ। ଗୋଟିଏ ହିଁ ୟୁନିଟ୍ ହେଲେ ଖାଲି ଛାଡ଼ନ୍ତୁ।
+Unit 1 — biggest (e.g. Bag)	इकाई 1 — सबसे बड़ी (जैसे बोरी)	ୟୁନିଟ୍ 1 — ସବୁଠୁ ବଡ଼ (ଯେପରି ବସ୍ତା)
+Unit 2 — middle (e.g. Kg)	इकाई 2 — बीच की (जैसे किलो)	ୟୁନିଟ୍ 2 — ମଝିରେ (ଯେପରି କିଲୋ)
+Unit 3 — smallest (e.g. Gram)	इकाई 3 — सबसे छोटी (जैसे ग्राम)	ୟୁନିଟ୍ 3 — ସବୁଠୁ ଛୋଟ (ଯେପରି ଗ୍ରାମ)
+Stock, price and cost are kept per	स्टॉक, भाव और लागत इसके हिसाब से रखे जाते हैं	ଷ୍ଟକ୍, ଦର ଓ ଲାଗତ ଏହି ହିସାବରେ ରହେ
+Unit (set by Units below)	इकाई (नीचे की इकाइयों से तय)	ୟୁନିଟ୍ (ତଳ ୟୁନିଟ୍ ଅନୁସାରେ)
+Retail and wholesale prices	खुदरा और थोक भाव	ଖୁଚୁରା ଓ ପାଇକାରୀ ଦର
+All prices include GST. Leave a box empty to use the automatic price.	सभी भाव GST सहित हैं। अपने-आप वाला भाव लेने के लिए खाना खाली छोड़ें।	ସବୁ ଦର GST ସହିତ। ସ୍ୱୟଂଚାଳିତ ଦର ପାଇଁ ଘର ଖାଲି ଛାଡ଼ନ୍ତୁ।
+Retail price (₹) — the Selling price above	खुदरा भाव (₹) — ऊपर वाला बिक्री भाव	ଖୁଚୁରା ଦର (₹) — ଉପରର ବିକ୍ରି ଦର
+Wholesale price (₹)	थोक भाव (₹)	ପାଇକାରୀ ଦର (₹)
+Wholesale rate	थोक भाव	ପାଇକାରୀ ଦର

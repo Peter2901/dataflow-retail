@@ -124,9 +124,9 @@ const titleUnit = u => { const x = up(u); return x === 'PCS' || x === 'NOS' || x
 
 /**
  * Map rows (objects keyed by header, as from XLSX sheet_to_json) to products.
- * Each item: { row, name, barcode, brand, category, uom, loose, hsn, gst, mrp, price, cost,
- *   prices: { wholesale, godown }, packs: [{ name, qty, price, wholesale, godown }], casePack,
- *   openingStock, expiry, warnings: [], errors: [] }
+ * Each item: { row, name, barcode, brand, category, uom, loose, hsn, gst, mrp, price (retail per piece / kg), cost,
+ *   units / prices / wholesale in the app's unit model (units.js), godown (per piece / kg, kept for later),
+ *   casePack, openingStock, expiry, warnings: [], errors: [] }
  */
 export function mapMargItems(raw, { today = new Date() } = {}) {
   if (!raw.length) return { mapped: [], columns: {} };
@@ -194,8 +194,24 @@ export function mapMargItems(raw, { today = new Date() } = {}) {
       if (packs[0] && packs[0].price / packs[0].qty > mrp) packs[0].price = r2(mrp * packs[0].qty);
     }
     if (cost && price && cost >= price) warnings.push(`Purchase rate ₹${cost} is not below the selling price ₹${price} — check`);
+    if (wholesale && mrp > 0 && wholesale > mrp + 0.001) { warnings.push(`Wholesale ₹${wholesale} is above MRP ₹${mrp} — set to MRP`); wholesale = mrp; }
     if (wholesale && price && wholesale > price + 0.001) warnings.push(`Wholesale ₹${wholesale} is above retail ₹${price} — check`);
     if (wholesale && cost && wholesale < cost) warnings.push(`Wholesale ₹${wholesale} is below purchase ₹${cost} — loss on wholesale`);
+    if (packs[0] && mrp > 0 && packs[0].wholesale > mrp * packs[0].qty + 0.001) packs[0].wholesale = r2(mrp * packs[0].qty);
+
+    // In the app's unit model (units.js): a pack item is "BAG / Pcs" (1 BAG = conv Pcs, stock in Pcs);
+    // a loose item is "Kg / Gram" (stock in Kg). Retail and wholesale prices are kept per unit.
+    let units, prices, single = {};
+    if (loose) {
+      units = { names: ['Kg', 'Gram', ''], c12: 1000, c23: 0, base: 0 };
+      if (wholesale && wholesale !== price) prices = { r: [0, 0], w: [wholesale, wholesale / 1000, 0] };
+    } else if (packs[0]) {
+      const k = packs[0];
+      const name = /^(PCS|PC|NOS|PIECE|PIECES)$/i.test(k.name) ? 'PACK' : k.name;
+      units = { names: [name, 'Pcs', ''], c12: k.qty, c23: 0, base: 1 };
+      const packRetail = Math.abs(k.price - (price || 0) * k.qty) > 0.005 ? k.price : 0;   // only when it differs from piece × size
+      if (packRetail || k.wholesale || wholesale) prices = { r: [packRetail, 0], w: [k.wholesale || 0, wholesale || 0, 0] };
+    } else if (wholesale && wholesale !== price) single = { wholesale };
 
     const gst = taxRate(g(r, 'tax'));
     const hsnRaw = String(g(r, 'hsn') ?? '').trim();
@@ -217,8 +233,8 @@ export function mapMargItems(raw, { today = new Date() } = {}) {
       category: (String(g(r, 'category') ?? '').trim() || 'General').replace(/^Other$/i, 'General'),
       rack: String(g(r, 'rack') ?? '').trim().replace(/^Other$/i, ''),
       uom, loose, hsn, gst, mrp: mrp || price, price, cost,
-      prices: { ...(wholesale ? { wholesale } : {}), ...(godown ? { godown } : {}) },
-      packs, casePack, openingStock: Math.max(0, openingStock || 0), expiry: exp.date,
+      ...(units ? { units } : {}), ...(prices ? { prices } : {}), ...single, ...(godown ? { godown } : {}),
+      casePack, openingStock: Math.max(0, openingStock || 0), expiry: exp.date,
       packing: String(g(r, 'packing') || '').trim(), warnings, errors,
     });
   });

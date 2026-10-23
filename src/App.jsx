@@ -21,6 +21,7 @@ import Assistant from './pages/Assistant.jsx';
 import Smart from './pages/Smart.jsx';
 import Hub from './pages/Hub.jsx';
 import GstSaathi from './pages/GstSaathi.jsx';
+import Store from './pages/Store.jsx';
 import { Connect, Downloading } from './ui/Connect.jsx';
 import { setUiLanguage, UI_LANGS } from './lib/i18n.js';
 
@@ -48,6 +49,8 @@ const ICON = {
   reports: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 4-6"/>',
   staff: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21a7 7 0 0 1 14 0"/>',
   gst: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h6"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/>',
+  store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M3 9h18"/><path d="M10 20v-6h4v6"/>',
   hub: '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.2"/>',
   smart: '<path d="M12 2l2.4 5.6L20 8.3l-4.3 3.9L17 18l-5-3-5 3 1.3-5.8L4 8.3l5.6-.7Z"/>',
   assistant: '<path d="M12 3a7 7 0 0 1 7 7c0 3-2 4-2 6H7c0-2-2-3-2-6a7 7 0 0 1 7-7Z"/><path d="M9 21h6"/>',
@@ -64,25 +67,25 @@ const NavIcon = ({ id }) => (
 const OFFICE = ['owner', 'manager', 'accountant'];
 export const NAV = [
   { group: 'Today', items: [
-    { id: 'dashboard', label: 'Home', roles: OFFICE, el: Dashboard },
+    { id: 'dashboard', label: 'Dashboard', roles: OFFICE, el: Dashboard },
     { id: 'pos', label: 'Billing counter', roles: ['owner', 'manager', 'cashier'], el: POS },
     { id: 'orders', label: 'WhatsApp orders', roles: ['owner', 'manager', 'cashier'], el: Orders, badge: 'orders' },
   ] },
-  { group: 'Stock', items: [
+  { group: 'Stock & buying', items: [
     { id: 'products', label: 'Products', roles: OFFICE, el: Products },
     { id: 'stock', label: 'Stock & batches', roles: ['owner', 'manager'], el: Stock },
     { id: 'expiry', label: 'Expiry control', roles: ['owner', 'manager'], el: Expiry, badge: 'expiry' },
-    { id: 'offers', label: 'Offers & pricing', roles: ['owner', 'manager'], el: Offers },
     { id: 'purchases', label: 'Purchases & suppliers', roles: OFFICE, el: Purchases },
+    { id: 'offers', label: 'Offers & prices', roles: ['owner', 'manager'], el: Offers },
   ] },
   { group: 'Customers', items: [
-    { id: 'customers', label: 'Customers & loyalty', roles: ['owner', 'manager', 'cashier'], el: Customers, badge: 'followups' },
-    { id: 'credit', label: 'Credit & dues', roles: OFFICE, el: Credit },
+    { id: 'customers', label: 'Customers & points', roles: ['owner', 'manager', 'cashier'], el: Customers, badge: 'followups' },
+    { id: 'credit', label: 'Udhaar & dues', roles: OFFICE, el: Credit },
   ] },
   { group: 'Money & team', items: [
     { id: 'accounts', label: 'Accounts', roles: ['owner', 'accountant'], el: Accounts },
-    { id: 'gst', label: 'GST Saathi', roles: ['owner', 'accountant'], el: GstSaathi },
     { id: 'reports', label: 'Reports', roles: OFFICE, el: Reports },
+    { id: 'gst', label: 'GST Saathi', roles: ['owner', 'accountant'], el: GstSaathi },
     { id: 'staff', label: 'Staff & salary', roles: ['owner', 'manager'], el: Staff },
   ] },
   { group: 'Smart & AI', ai: true, items: [
@@ -90,17 +93,32 @@ export const NAV = [
     { id: 'assistant', label: 'Ask your shop', roles: OFFICE, el: Assistant },
     { id: 'smart', label: 'Smart insights', roles: OFFICE, el: Smart, hidden: true },
   ] },
+  { group: '', items: [
+    { id: 'store', label: 'Store & owner', roles: OFFICE, el: Store },
+  ] },
   { group: 'Setup', fold: true, items: [
     { id: 'setup', label: 'Import & setup', roles: ['owner', 'manager'], el: Setup },
     { id: 'audit', label: 'Security & audit', roles: ['owner'], el: Audit },
     { id: 'settings', label: 'Settings', roles: ['owner'], el: Settings },
   ] },
 ];
-// Phone bottom tabs: first matches the role can open, AI hub always 5th.
-const TAB_CHOICES = ['dashboard', 'pos', 'orders', 'products', 'purchases', 'customers', 'credit', 'reports'];
-const TAB_LABEL = { dashboard: 'Home', pos: 'Billing', orders: 'Orders', products: 'Products', purchases: 'Purchases', customers: 'Customers', credit: 'Dues', reports: 'Reports', hub: 'Smart & AI' };
+// Phone bottom tabs (from the design): Home, Stock, Buy, Money, AI. Cashiers get their own few.
+const TAB_SETS = [['dashboard', 'products', 'purchases', 'money', 'hub'], ['pos', 'orders', 'customers']];
+const TAB_LABEL = { dashboard: 'Home', products: 'Stock', purchases: 'Buy', money: 'Money', hub: 'AI', pos: 'Billing', orders: 'Orders', customers: 'Customers' };
+const TAB_ICON = { money: 'reports' };
 const ROLE_LABEL = { owner: 'Owner', manager: 'Manager', cashier: 'Cashier', accountant: 'Accountant' };
 void ALL;
+
+// Light or dark screen for this device.
+function ThemePick({ value }) {
+  const dark = value === 'dark' || (value !== 'light' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  return (
+    <div className="theme-pick" role="group" aria-label="Light or dark screen">
+      <button className={dark ? '' : 'on'} aria-pressed={!dark} aria-label="Light" title="Light" onClick={() => setSetting('theme', 'light')}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg></button>
+      <button className={dark ? 'on' : ''} aria-pressed={dark} aria-label="Dark" title="Dark" onClick={() => setSetting('theme', 'dark')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" /></svg></button>
+    </div>
+  );
+}
 
 // Screen language for this device (English / हिंदी / ଓଡ଼ିଆ).
 function LangPick({ value }) {
@@ -209,7 +227,8 @@ export default function App() {
   const Page = current.el;
   const go = (id, p = null) => { setPage(id); setParam(p); setMenu(false); };
   const canOpen = id => items.some(i => i.id === id);
-  const tabs = [...TAB_CHOICES.filter(canOpen).slice(0, canOpen('hub') ? 4 : 5), ...(canOpen('hub') ? ['hub'] : [])];
+  const tabPage = id => id === 'money' ? ['gst', 'reports', 'accounts'].find(canOpen) : id;
+  const tabs = (canOpen('dashboard') ? TAB_SETS[0] : TAB_SETS[1]).filter(id => tabPage(id) && canOpen(tabPage(id)));
   const ctx = { canOpen, user, settings, storeId: settings.currentStore || 'S1', go, param, online, logout: () => { audit('logout', {}, user); setUser(null); } };
 
   return (
@@ -234,7 +253,7 @@ export default function App() {
                   <div key={g.group} className={g.ai ? 'nav-ai' : ''}>
                     {g.fold
                       ? <button className="nav-group nav-group-btn" onClick={() => setSetupOpen(o => !o)} aria-expanded={open}><span>{g.group}</span><span aria-hidden="true">{open ? '−' : '+'}</span></button>
-                      : <div className="nav-group">{g.ai ? '✦ ' : ''}{g.group}</div>}
+                      : g.group ? <div className="nav-group">{g.ai ? '✦ ' : ''}{g.group}</div> : <div style={{ height: 8 }} />}
                     {open && vis.map(i => (
                       <button key={i.id} className={`nav-item ${current.id === i.id || (i.id === 'hub' && current.id === 'smart') ? 'on' : ''}`} onClick={() => go(i.id)}>
                         <NavIcon id={i.id} /><span>{i.label}</span>{i.badge && counts?.[i.badge] ? <span className="nav-count">{counts[i.badge]}</span> : null}
@@ -253,7 +272,7 @@ export default function App() {
                   : sync.lastSync ? `Synced ${new Date(sync.lastSync).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
                   : 'Sync on'}
               </span>
-              <LangPick value={settings.lang} />
+              <div className="side-prefs"><LangPick value={settings.lang} /><ThemePick value={settings.theme} /></div>
               <div className="row between"><span>{user.name} · {ROLE_LABEL[user.role]}</span><button className="btn btn-sm btn-dark" onClick={ctx.logout}>Lock</button></div>
             </div>
           </aside>
@@ -263,11 +282,13 @@ export default function App() {
           {tabs.length > 1 && current.id !== 'pos' && (
             <nav className="tabbar" aria-label="Main">
               {tabs.map(id => {
-                const it = items.find(i => i.id === id);
-                const on = current.id === id || (id === 'hub' && (current.id === 'smart' || current.id === 'assistant'));
+                const page = tabPage(id);
+                const it = items.find(i => i.id === page);
+                const on = current.id === page || (id === 'hub' && (current.id === 'smart' || current.id === 'assistant'))
+                  || (id === 'money' && ['gst', 'reports', 'accounts', 'credit'].includes(current.id));
                 return (
-                  <button key={id} className={`${on ? 'on' : ''} ${id === 'hub' ? 'ai' : ''}`} onClick={() => go(id)} aria-current={on ? 'page' : undefined}>
-                    <NavIcon id={id} /><span>{TAB_LABEL[id]}</span>{it?.badge && counts?.[it.badge] ? <span className="nav-count">{counts[it.badge]}</span> : null}
+                  <button key={id} className={`${on ? 'on' : ''} ${id === 'hub' ? 'ai' : ''}`} onClick={() => go(page)} aria-current={on ? 'page' : undefined}>
+                    <NavIcon id={id === 'dashboard' ? 'home' : TAB_ICON[id] || id} /><span>{TAB_LABEL[id]}</span>{it?.badge && counts?.[it.badge] ? <span className="nav-count">{counts[it.badge]}</span> : null}
                   </button>
                 );
               })}

@@ -5,6 +5,7 @@ import { inr, num, todayISO, uid, validGSTIN } from '../lib/util.js';
 import { savePurchase, lastBillLines } from '../lib/purchasing.js';
 import { readSheet } from '../lib/excel.js';
 import { GST_SLABS } from '../lib/billing.js';
+import { unitList, plain } from '../lib/units.js';
 import { loadPurchaseContext, checkBill, lineCalc, billCalc } from '../lib/purchaseChecks.js';
 import { scanBill, smartScanConfig, supplierByGstin } from '../lib/billreader.js';
 import { isStoreBarcode } from '../lib/barcode.js';
@@ -55,6 +56,14 @@ export default function PurchaseBill({ draft, onClose }) {
   const pick = (k, id) => {
     const p = pm[id]; const h = lastFrom(id);
     setL(k, { productId: id, name: p?.name || '', match: 'manual', ...(h ? { rate: h.rate, disc: h.disc, pack: h.pack } : { rate: p?.cost || '' }), gst: p?.gst ?? 5 });
+  };
+  // Products with 3 units: buy in Bag, Kg or Gram. Stock is added in the base unit, so Pcs/unit = base units in one chosen unit.
+  const buyUnit = l => { const L = unitList(pm[l.productId]); return L.find(u => u.name === l.unit) || L.find(u => Math.abs(u.factor - (Number(l.pack) || 1)) < 1e-9) || L.find(u => u.base) || null; };
+  const chooseUnit = (l, i) => {
+    const p = pm[l.productId]; const L = unitList(p); const old = buyUnit(l); const nu = L[i]; if (!nu) return;
+    const oldRate = p.cost && old ? Math.round(p.cost * old.factor * 100) / 100 : null;
+    const same = !l.rate || (oldRate != null && Math.abs(Number(l.rate) - oldRate) < 0.01);
+    setL(l.key, { unit: nu.name, pack: nu.factor, ...(same && p.cost ? { rate: Math.round(p.cost * nu.factor * 100) / 100 } : {}) });
   };
   const calc = billCalc(lines);
   const checks = useMemo(() => ctx ? checkBill(ctx, { supplier, billNo, date, lines, printed: { total: Number(printedTotal) || null, taxType }, products, suppliers }) : null, [ctx, supplier, billNo, date, lines, printedTotal, taxType, products, suppliers]);
@@ -232,18 +241,19 @@ export default function PurchaseBill({ draft, onClose }) {
                       <select className="input" value={l.productId} onChange={e => pick(l.key, e.target.value)} aria-label="Product"><option value="">{l.text ? 'Pick product…' : 'Choose product'}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
                       {!l.productId && l.text && <Btn size="sm" onClick={() => setQuick({ key: l.key, name: l.text, mrp: l.mrp, gst: l.gst, cost: c.landing ? c.landing.toFixed(2) : '' })} title="Add as a new product">＋New</Btn>}
                     </div>
+                    {unitList(pm[l.productId]).length > 0 && <select className="input" style={{ marginTop: 4 }} value={buyUnit(l)?.i ?? 0} onChange={e => chooseUnit(l, Number(e.target.value))} aria-label="Buying unit">{unitList(pm[l.productId]).map(u => <option key={u.i} value={u.i}>Buying in {u.name}{u.base ? ' (stock unit)' : ''}</option>)}</select>}
                     {l.text && <div className="small muted">On bill: {l.text}{l.unit ? ` · ${l.unit}` : ''}</div>}
                   </td>
                   <td><input className="input xs" type="number" value={l.qty} onChange={e => setL(l.key, { qty: e.target.value })} aria-label="Quantity" /></td>
                   <td><input className="input xs" type="number" value={l.free} onChange={e => setL(l.key, { free: e.target.value })} aria-label="Free quantity" /></td>
-                  <td><input className="input xs" type="number" min="1" value={l.pack} onChange={e => setL(l.key, { pack: e.target.value })} aria-label="Pieces per unit" /></td>
+                  <td><input className="input xs" type="number" min="0" step="any" value={l.pack} onChange={e => setL(l.key, { pack: e.target.value })} aria-label="Pieces per unit" /></td>
                   <td><input className="input" style={{ width: 90 }} type="number" step="0.01" value={l.rate} onChange={e => setL(l.key, { rate: e.target.value })} aria-label="Rate" /></td>
                   <td><input className="input xs" type="number" step="0.01" value={l.disc} onChange={e => setL(l.key, { disc: e.target.value })} aria-label="Discount percent" /></td>
                   <td><select className="input" style={{ width: 70 }} value={l.gst} onChange={e => setL(l.key, { gst: Number(e.target.value) })} aria-label="GST">{GST_SLABS.map(g => <option key={g} value={g}>{g}%</option>)}</select></td>
                   <td><input className="input xs" type="number" step="0.01" value={l.mrp} onChange={e => setL(l.key, { mrp: e.target.value })} aria-label="MRP" /></td>
                   <td><input className="input" style={{ width: 90 }} value={l.batchNo} onChange={e => setL(l.key, { batchNo: e.target.value })} aria-label="Batch" /></td>
                   <td><input className="input" style={{ width: 140 }} type="date" value={l.expiry} onChange={e => setL(l.key, { expiry: e.target.value })} aria-label="Expiry" /></td>
-                  <td className="num">{inr(c.total)}{c.pieces > 0 && <div className="small muted">{num(c.pieces)} pcs · {inr(c.landing)}/pc</div>}</td>
+                  <td className="num">{inr(c.total)}{c.pieces > 0 && <div className="small muted">{unitList(pm[l.productId]).length ? `${plain(c.pieces)} ${pm[l.productId].uom.toLowerCase()} · ${inr(c.landing)}/${pm[l.productId].uom.toLowerCase()}` : `${num(c.pieces)} pcs · ${inr(c.landing)}/pc`}</div>}</td>
                   <td><button className="icon-btn" onClick={() => setLines(ls => ls.filter(x => x.key !== l.key))} aria-label="Remove line">✕</button></td>
                 </tr>
                 {iss.length > 0 && <tr className={rowClass(l)}><td colSpan={12} style={{ paddingTop: 0 }}><Issues list={iss} /></td></tr>}

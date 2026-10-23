@@ -12,21 +12,36 @@ import { inr, num, r2, uid, waLink, upiLink, validGSTIN, fmtDT, inArtifact, sum 
 import { beep, readScaleWeight, serialSupported, printReceipt } from '../lib/hardware.js';
 import QuickAdd from '../ui/QuickAdd.jsx';
 import { smartSearch } from '../lib/search.js';
-import { LEVELS, levelLabel, lineQty, unitsOf, findByCode, qtyText } from '../lib/pricing.js';
+import { unitList, toBase, fromBase, plain, priceFor } from '../lib/units.js';
 
 const PAY_LABEL = { cash: 'Cash', upi: 'UPI', card: 'Card', credit: 'Credit (udhaar)' };
+// Payment tiles on the counter: the icon says what it is, the key badge says how to press it.
+const PAY_TILES = [
+  { mode: 'upi', label: 'UPI', key: 'F10', icon: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="4" height="4" rx=".8"/><path d="M14 7h3v3"/><path d="M7 14v3h3"/><path d="M14 14h3v3h-3z"/>' },
+  { mode: 'cash', label: 'Cash', key: 'F9', icon: '<path d="M6 3h12"/><path d="M6 8h12"/><path d="M6 13l8.5 8"/><path d="M6 13h3"/><path d="M9 13c6.667 0 6.667-10 0-10"/>' },
+  { mode: 'card', label: 'Card', key: 'F11', icon: '<rect x="2.5" y="5.5" width="17" height="13" rx="2.2"/><rect x="5.5" y="9.5" width="3.6" height="2.8" rx=".6"/><path d="M5.5 15.5h5M13 15.5h3"/><path d="M20.3 9.2a3.6 3.6 0 0 1 0 5.6M22.3 7.4a6.3 6.3 0 0 1 0 9.2"/>' },
+  { mode: 'credit', label: 'Udhaar', key: 'F12', icon: '<path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4M2 10h4M2 14h4M2 18h4"/><path d="M21.38 5.63a2.12 2.12 0 0 0-3-3l-5.01 5.01a2 2 0 0 0-.51.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.51Z"/>' },
+];
 
-// Batch allocation (FEFO) for every cart line, in base units. Lines whose quantity did not change
-// keep their earlier result, so a 60-item bill does not re-read every batch on each scan.
-async function allocateCart(cart, pmap, storeId, cfg, cache = new Map()) {
+// Units: the cart keeps every quantity in the product's base unit; `unit` is only how the cashier sees it.
+function unitInfo(p, c) {
+  const L = unitList(p);
+  if (!L.length) return {};
+  const cur = L[c.unit] || L.find(x => x.base);
+  return { units: L, unitIdx: cur.i, unitName: cur.name, unitFactor: cur.factor };
+}
+const r2e = v => Math.round(v * 1e4) / 1e4;
+const stepFor = (l, f) => (f <= 0.01 ? 50 : l.uom === 'KG' && f === 1 ? 0.25 : 1);
+
+// Batch allocation (FEFO) for every cart line (cart quantities are in the base unit). Lines whose
+// quantity did not change keep their earlier result, so a 60-item bill does not re-read every batch per scan.
+async function allocateCart(cart, storeId, cfg, cache = new Map()) {
   const m = {};
   for (const c of cart) {
-    const p = pmap[c.productId];
-    if (!p) continue;
-    const base = lineQty(p, { count: c.qty, idx: c.unit ?? null }).qty;
+    const q = Number(c.qty) || 0;
     const hit = cache.get(c.key);
-    if (hit && hit.forQty === base && hit.productId === c.productId) { m[c.key] = hit; continue; }
-    const res = { ...(await allocateFEFO(c.productId, base, storeId, cfg)), forQty: base, productId: c.productId };
+    if (hit && hit.forQty === q && hit.productId === c.productId) { m[c.key] = hit; continue; }
+    const res = { ...(await allocateFEFO(c.productId, q, storeId, cfg)), forQty: q, productId: c.productId };
     cache.set(c.key, res);
     m[c.key] = res;
   }
@@ -34,25 +49,24 @@ async function allocateCart(cart, pmap, storeId, cfg, cache = new Map()) {
 }
 
 // Everything on screen (and what gets saved) is worked out here, from the cart and its allocations.
-function buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, level }) {
+function buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode }) {
   const lines = cart.map(c => {
     const p = pmap[c.productId];
     if (!p) return null;
-    const lq = lineQty(p, { count: c.qty, idx: c.unit ?? null, level, price: c.price ?? null });
+    const ui = unitInfo(p, c);
+    const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
     const a = allocs[c.key] || { alloc: [], blocked: [] };
-    const stale = !allocs[c.key] || allocs[c.key].forQty !== lq.qty;
-    const markdownDisc = r2(sum(a.alloc, x => (x.qty * lq.unitPrice * x.markdown) / 100));
-    return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: lq.qty, count: Number(c.qty) || 0, unit: c.unit ?? null,
-      unitPrice: lq.unitPrice, sell: lq.sell, level, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, stale, override: c.price != null, product: p };
+    const stale = !allocs[c.key] || allocs[c.key].forQty !== (Number(c.qty) || 0);
+    const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
+    return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, stale, override: c.price != null, ...ui };
   }).filter(Boolean);
-  // Wholesale and godown rates are already the special price: shop offers apply to retail bills.
-  const o = level === 'retail' ? applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) }) : { perLine: {}, billDiscounts: [] };
+  const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
   const billLines = lines.map(l => ({
     ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
     offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
   }));
   const pre = computeBill(billLines, o.billDiscounts);
-  const maxPts = customer ? Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100)) : 0;
+  const maxPts = customer ? Math.max(0, Math.min(customer.points || 0, Math.floor(pre.totals.payable * (settings.pointsMaxPct || 30) / 100))) : 0;
   const usePts = Math.min(points, maxPts);
   const bd = [...o.billDiscounts, ...(usePts ? [{ label: `Points (${usePts})`, amount: usePts }] : [])];
   const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
@@ -75,10 +89,10 @@ export default function POS() {
   const [query, setQuery] = useState('');
   const [hi, setHi] = useState(0);
   const [customer, setCustomer] = useState(null);
+  const [priceMode, setPriceMode] = useState('retail');   // 'retail' | 'wholesale'
   const [due, setDue] = useState(0);
   const [b2b, setB2b] = useState('');
   const [points, setPoints] = useState(0);
-  const [level, setLevelState] = useState('retail');
   const [modal, setModal] = useState(null);
   const [orderId, setOrderId] = useState(null);
   const scanRef = useRef();
@@ -104,34 +118,22 @@ export default function POS() {
   useEffect(() => {
     let live = true;
     (async () => {
-      const m = await allocateCart(cart, pmap, storeId, cfg, allocCache.current);
+      const m = await allocateCart(cart, storeId, cfg, allocCache.current);
       if (live) setAllocs(m);
     })();
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, storeId, pmap]);
+  }, [cart, storeId]);
 
   const setCust = async c => {
     setCustomer(c);
     setPoints(0);
     setDue(c ? await customerDue(c.id) : 0);
     if (c?.gstin) setB2b(c.gstin);
-    if (c?.priceLevel && c.priceLevel !== 'retail') setLevelState(c.priceLevel);
+    if (c?.priceLevel === 'wholesale') setPriceMode('wholesale');   // shops set to the wholesale rate
   };
 
-  // Wholesale / godown rates: a customer marked for that rate gets it; otherwise a cashier needs a manager.
-  const setLevel = async v => {
-    if (v === level) return;
-    if (v !== 'retail' && customer?.priceLevel !== v && !['owner', 'manager'].includes(user.role)) {
-      const m = await approve(`Bill at ${levelLabel(v)} rates`);
-      if (!m) return;
-      audit('price_level', { level: v, approvedBy: m.name }, user);
-    }
-    setLevelState(v);
-    scanRef.current?.focus();
-  };
-
-  const view = useMemo(() => buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, level }), [cart, allocs, offers, pmap, customer, points, b2b, settings, level]);
+  const view = useMemo(() => buildView({ cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode }), [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -139,9 +141,8 @@ export default function POS() {
     return smartSearch(query.trim(), products, 8);   // Hindi/Odia names and typing mistakes too
   }, [query, products]);
 
-  const addProduct = async (p, qty = 1, idx = null) => {
-    const base = lineQty(p, { count: qty, idx }).qty;
-    const { alloc, blocked } = await allocateFEFO(p.id, base, storeId, cfg);
+  const addProduct = async (p, qty = 1) => {
+    const { alloc, blocked } = await allocateFEFO(p.id, qty, storeId, cfg);
     if (!alloc.length && blocked.length) {
       beep(); toast(`${p.name}: only expired or blocked stock on hand. Sale stopped — move it to quarantine.`, 'bad');
       audit('blocked_scan', { product: p.name }, user);
@@ -149,9 +150,9 @@ export default function POS() {
     }
     beep(true);
     setCart(c => {
-      const ex = c.find(x => x.productId === p.id && (x.unit ?? null) === idx && !p.loose && x.price == null);
+      const ex = c.find(x => x.productId === p.id && !p.loose);
       if (ex) return c.map(x => x === ex ? { ...x, qty: Number(x.qty) + qty } : x);
-      return [...c, { key: uid('l'), productId: p.id, qty, unit: idx }];
+      return [...c, { key: uid('l'), productId: p.id, qty }];
     });
     setQuery(''); setHi(0);
     scanRef.current?.focus();
@@ -161,12 +162,12 @@ export default function POS() {
     e.preventDefault();
     const q = query.trim();
     if (!q) return;
-    // An exact code always wins: product barcode, pack/carton barcode, SKU or PLU. Then weighing-scale
-    // stickers, then the name list. So a scanned code can never add a look-alike product by name.
-    const hit = findByCode(products, q);
-    if (hit) {
-      if (hit.product.loose && hit.idx == null) return setModal({ type: 'weight', product: hit.product });
-      return addProduct(hit.product, 1, hit.idx);
+    // An exact code always wins (barcode, SKU, PLU), then weighing-scale stickers, then the name list —
+    // so a scanned code can never add a look-alike product by name.
+    const p = products.find(x => x.barcode === q || x.id.toLowerCase() === q.toLowerCase() || (x.plu && x.plu === q));
+    if (p) {
+      if (p.loose) return setModal({ type: 'weight', product: p });
+      return addProduct(p);
     }
     const scale = parseScaleBarcode(q);
     if (scale) {
@@ -174,8 +175,8 @@ export default function POS() {
       if (sp) return addProduct(sp, r2(scale.grams / 1000));
     }
     if (suggestions.length && !/^\d{6,}$/.test(q)) {
-      const p = suggestions[hi] || suggestions[0];
-      return p.loose ? setModal({ type: 'weight', product: p }) : addProduct(p);
+      const sp = suggestions[hi] || suggestions[0];
+      return sp.loose ? setModal({ type: 'weight', product: sp }) : addProduct(sp);
     }
     beep(); setQuery('');
     if (/^[A-Z0-9-]{6,20}$/i.test(q)) {
@@ -187,18 +188,27 @@ export default function POS() {
   };
 
   const setQty = (key, qty) => setCart(c => c.map(x => x.key === key ? { ...x, qty: Math.max(0, qty) } : x).filter(x => x.qty > 0));
-  const setUnit = (key, unit) => setCart(c => c.map(x => x.key === key ? { ...x, unit, price: undefined } : x));
   const removeLine = key => setCart(c => c.filter(x => x.key !== key));
+  // Wholesale prices are lower, so a cashier needs a manager's PIN to switch a bill to them.
+  const switchWholesale = async () => {
+    if (priceMode === 'wholesale') return;
+    const ok = ['owner', 'manager'].includes(user.role) || await approve('Switch this bill to wholesale prices');
+    if (!ok) return;
+    setPriceMode('wholesale');
+    audit('wholesale_bill', { items: cart.length }, user);
+  };
+  const setUnit = (key, i) => setCart(c => c.map(x => x.key === key ? { ...x, unit: i } : x));
 
   const overridePrice = async line => {
-    const v = await new Promise(res => setModal({ type: 'price', line, res }));
+    const f = line.unitFactor || 1;          // the cashier types the price of ONE unit (e.g. per Bag)
+    const shown = f === 1 ? line : { ...line, unitPrice: line.unitPrice * f, mrp: line.mrp * f, cost: line.cost * f };
+    const v = await new Promise(res => setModal({ type: 'price', line: shown, res }));
     setModal(null);
     if (v == null) return;
-    const shown = line.sell ? line.sell.price : line.unitPrice;
-    const mgr = await approve(`Change price of ${line.name} to ${inr(v)}${line.sell ? ' per ' + line.sell.unit : ''} (shelf price ${inr(shown)})`);
+    const mgr = await approve(`Change price of ${line.name} to ${inr(v)}${line.unitName ? ' per ' + line.unitName : ''} (shelf price ${inr(shown.unitPrice)})`);
     if (!mgr) return;
-    setCart(c => c.map(x => x.key === line.key ? { ...x, price: Number(v) } : x));
-    audit('price_override', { product: line.name, from: shown, to: v, approvedBy: mgr.name }, user);
+    setCart(c => c.map(x => x.key === line.key ? { ...x, price: Math.round((Number(v) / f) * 1e6) / 1e6 } : x));
+    audit('price_override', { product: line.name, from: shown.unitPrice, to: v, unit: line.unitName || null, approvedBy: mgr.name }, user);
   };
 
   const clearBill = async (force = false) => {
@@ -207,25 +217,16 @@ export default function POS() {
       if (!mgr) return;
       audit('bill_cancel', { items: cart.length, value: view.bill.totals.payable, approvedBy: mgr.name }, user);
     }
-    setCart([]); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null); setLevelState('retail');
+    setCart([]); setPriceMode('retail'); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
     allocCache.current.clear();
     scanRef.current?.focus();
   };
 
   const hold = async () => {
     if (!cart.length) return;
-    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, level, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
+    await db.held.add({ id: uid('h_'), ts: Date.now(), cart, priceMode, customerId: customer?.id || null, total: view.bill.totals.payable, by: user.name });
     toast('Bill put on hold. Press F8 to bring it back.');
     clearBill(true);
-  };
-
-  const viewRef = useRef(view);
-  viewRef.current = view;
-  const openPay = (tries = 0) => {
-    const v = viewRef.current;
-    if (!v.lines.length || v.blocked.length) return;
-    if (v.stale && tries < 50) { setTimeout(() => openPay(tries + 1), 40); return; }   // last scan's stock check still running
-    setModal({ type: 'pay' });
   };
 
   const finish = async payments => {
@@ -234,8 +235,8 @@ export default function POS() {
     saving.current = true;
     try {
       // Batches are read again right now, so stock sold at another counter a moment ago is respected.
-      const fresh = await allocateCart(cart, pmap, storeId, cfg, new Map());
-      const v = buildView({ cart, allocs: fresh, offers, pmap, customer, points, b2b, settings, level });
+      const fresh = await allocateCart(cart, storeId, cfg, new Map());
+      const v = buildView({ cart, allocs: fresh, offers, pmap, customer, points, b2b, settings, priceMode });
       if (Math.abs(v.bill.totals.payable - view.bill.totals.payable) > 0.001) {
         setAllocs(fresh);
         toast(`Stock changed while billing — the total is now ${inr(v.bill.totals.payable)}. Take payment again.`, 'warn');
@@ -244,7 +245,7 @@ export default function POS() {
       if (v.blocked.length) { setAllocs(fresh); toast(`${v.blocked.map(l => l.name).join(', ')}: only expired stock left.`, 'bad'); return; }
       const sale = await saveSale({
         bill: v.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
-        pointsUsed: v.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: v.inter } : null, orderId, level,
+        pointsUsed: v.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: v.inter } : null, orderId, priceMode,
       });
       if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
       const short = v.lines.filter(l => l.alloc.shortfall > 0);
@@ -258,15 +259,29 @@ export default function POS() {
     }
   };
 
+  // Payment opens only when the last scan's stock check has finished (a fast cashier can press F9 at once).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const openPay = (mode, tries = 0) => {
+    const v = viewRef.current;
+    if (!v.lines.length || v.blocked.length) return;
+    if (v.stale && tries < 50) { setTimeout(() => openPay(mode, tries + 1), 40); return; }
+    setModal({ type: 'pay', mode });
+  };
+
+  const canPay = cart.length > 0 && !view.blocked.length;
   useHotkeys({
     F2: () => scanRef.current?.focus(),
     F3: () => setModal({ type: 'customer' }),
     F7: hold,
     F8: () => setModal({ type: 'recall' }),
-    F9: () => setModal({ type: 'return' }),
-    F6: () => setLevel(LEVELS[(LEVELS.findIndex(l => l.value === level) + 1) % LEVELS.length].value),
-    F12: () => openPay(),
-  }, [cart, view, customer, level]);
+    F6: () => setModal({ type: 'return' }),
+    // One key per way of paying (same keys as the tiles): F9 cash, F10 UPI, F11 card, F12 udhaar.
+    F9: () => canPay && openPay('cash'),
+    F10: () => canPay && openPay('upi'),
+    F11: () => canPay && openPay('card'),
+    F12: () => canPay && openPay('credit'),
+  }, [cart, view, customer]);
 
   if (shift === undefined) return <p className="muted">Loading counter…</p>;
   if (!shift) return <OpenShift storeId={storeId} />;
@@ -278,7 +293,7 @@ export default function POS() {
         <div><h1>Billing counter</h1><p className="muted">Counter {settings.terminal} · shift opened {fmtDT(shift.openedAt)} · {orderId ? 'Billing a WhatsApp order' : 'Scan or type to add items'}</p></div>
         <div className="row gap-s wrap">
           <Btn onClick={() => setModal({ type: 'recall' })}>Held bills <span className="kbd">F8</span></Btn>
-          <Btn onClick={() => setModal({ type: 'return' })}>Return <span className="kbd">F9</span></Btn>
+          <Btn onClick={() => setModal({ type: 'return' })}>Return <span className="kbd">F6</span></Btn>
           <Btn onClick={async () => { const m = await approve('Open the cash drawer without a sale'); if (m) { audit('drawer_open', { approvedBy: m.name }, user); toast('Drawer opening logged.'); } }}>Open drawer</Btn>
           <Btn onClick={() => setModal({ type: 'shift', mode: 'x' })}>Shift report</Btn>
           <Btn kind="dark" onClick={() => setModal({ type: 'shift', mode: 'z' })}>Close shift</Btn>
@@ -306,7 +321,12 @@ export default function POS() {
             </form>
           </Card>
 
-          <Card title={`Items (${view.lines.length})`} actions={cart.length ? <Btn size="sm" kind="ghost" onClick={() => clearBill()}>Cancel bill</Btn> : null}>
+          <Card title={`Items (${view.lines.length})`} actions={<>
+            <div className="price-mode" role="group" aria-label="Price list">
+              <button className={priceMode === 'retail' ? 'on' : ''} onClick={() => setPriceMode('retail')}>Retail</button>
+              <button className={priceMode === 'wholesale' ? 'on' : ''} onClick={switchWholesale}>Wholesale</button>
+            </div>
+            {cart.length ? <Btn size="sm" kind="ghost" onClick={() => clearBill()}>Cancel bill</Btn> : null}</>}>
             {!view.lines.length && <div className="empty">Scan the first item. Loose items (vegetables, dry fruits) ask for the weight or read it from the scale.</div>}
             {view.billLines.map((l, i) => {
               const a = l.alloc;
@@ -316,24 +336,22 @@ export default function POS() {
                   <div className="grow">
                     <div className="name">{l.name}</div>
                     <div className="small muted">
-                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{l.sell ? `${inr(l.sell.price)}/${l.sell.unit}×${l.sell.size} (${inr(l.unitPrice)} each)` : `${inr(l.unitPrice)}${l.uom === 'KG' ? '/kg' : ''}`}</button>
-                      {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%{l.level !== 'retail' && <b> · {levelLabel(l.level)}</b>}
+                      <button className="btn btn-sm btn-ghost" style={{ padding: 0 }} onClick={() => overridePrice(l)} title="Change price (needs manager)">{l.units ? `${inr(l.unitPrice * l.unitFactor)}/${l.unitName}` : <>{inr(l.unitPrice)}{l.uom === 'KG' ? '/kg' : ''}</>}</button>
+                      {' '}· MRP {inr(l.mrp, 0)} · GST {l.gst}%
                       {a.alloc.filter(x => x.batchNo !== 'NO-STOCK').map(x => <span key={x.batchId}> · {x.batchNo}{x.expiry ? ` (exp ${x.expiry})` : ''}</span>)}
                     </div>
                     {l.offerNote && <div className="small" style={{ color: 'var(--ok)' }}>{l.offerNote}</div>}
                     {a.shortfall > 0 && <Badge tone="warn">System stock short by {num(a.shortfall, 2)} — sale allowed, manager alerted</Badge>}
                     {!a.alloc.length && a.blocked.length > 0 && <Badge tone="bad">Expired stock — cannot be sold</Badge>}
                   </div>
+                  <div className="qty-col">
+                  {l.units && <select className="unit-pick" value={l.unitIdx} onChange={e => setUnit(l.key, Number(e.target.value))} aria-label="Unit">{l.units.map(u => <option key={u.i} value={u.i}>{u.name}</option>)}</select>}
                   <div className="qty">
-                    <button onClick={() => setQty(l.key, r2(l.count - (l.uom === 'KG' && !l.sell ? 0.25 : 1)))} aria-label="Less">−</button>
-                    <input value={l.count} inputMode="decimal" onChange={e => setQty(l.key, Number(e.target.value) || 0)} aria-label="Quantity" />
-                    <button onClick={() => setQty(l.key, r2(l.count + (l.uom === 'KG' && !l.sell ? 0.25 : 1)))} aria-label="More">+</button>
+                    <button onClick={() => setQty(l.key, r2e(l.qty - (l.unitFactor ? stepFor(l, l.unitFactor) * l.unitFactor : (l.uom === 'KG' ? 0.25 : 1))))} aria-label="Less">−</button>
+                    <input value={l.unitFactor ? plain(l.qty / l.unitFactor) : l.qty} inputMode="decimal" onChange={e => setQty(l.key, l.unitFactor ? r2e((Number(e.target.value) || 0) * l.unitFactor) : Number(e.target.value) || 0)} aria-label="Quantity" />
+                    <button onClick={() => setQty(l.key, r2e(l.qty + (l.unitFactor ? stepFor(l, l.unitFactor) * l.unitFactor : (l.uom === 'KG' ? 0.25 : 1))))} aria-label="More">+</button>
                   </div>
-                  <div className="unit-cell">{unitsOf(l.product).length > 1 ? (
-                    <select className="input unit-pick" value={l.unit ?? ''} onChange={e => setUnit(l.key, e.target.value === '' ? null : Number(e.target.value))} aria-label={`Unit for ${l.name}`}>
-                      {unitsOf(l.product).map(u => <option key={String(u.idx)} value={u.idx ?? ''}>{u.idx == null ? u.name : `${u.name} ×${u.size}`}</option>)}
-                    </select>
-                  ) : <span className="small muted">{l.uom === 'KG' ? 'kg' : 'pcs'}</span>}</div>
+                  </div>
                   <div className="num line-total">{inr(bl?.total || 0)}{l.lineDisc > 0 && <div className="small" style={{ color: 'var(--ok)' }}>−{inr(l.lineDisc)}</div>}</div>
                   <button className="icon-btn" onClick={() => removeLine(l.key)} aria-label={`Remove ${l.name}`}>✕</button>
                 </div>
@@ -342,7 +360,7 @@ export default function POS() {
           </Card>
           <div className="keys small muted">
             <span><span className="kbd">F2</span> scan</span><span><span className="kbd">F3</span> customer</span><span><span className="kbd">F7</span> hold</span>
-            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F9</span> return</span><span><span className="kbd">F6</span> retail/wholesale</span><span><span className="kbd">F12</span> pay</span>
+            <span><span className="kbd">F8</span> recall</span><span><span className="kbd">F6</span> return</span><span><span className="kbd">F9–F12</span> pay</span>
           </div>
         </div>
 
@@ -373,10 +391,6 @@ export default function POS() {
 
           <Card title="Total">
             <div className="totals">
-              <div className="level-pick" role="radiogroup" aria-label="Price level">
-                {LEVELS.map(lv => <button key={lv.value} role="radio" aria-checked={level === lv.value} className={level === lv.value ? 'on' : ''} onClick={() => setLevel(lv.value)}>{lv.label}</button>)}
-                <span className="kbd">F6</span>
-              </div>
               <div className="row small"><span>MRP value</span><span className="mono">{inr(t.mrpTotal)}</span></div>
               <div className="row small"><span>Before discounts</span><span className="mono">{inr(t.gross)}</span></div>
               {t.lineDisc > 0 && <div className="row small"><span>Offers & markdowns</span><span className="mono">−{inr(t.lineDisc)}</span></div>}
@@ -386,7 +400,15 @@ export default function POS() {
               <hr className="sep" />
               <div className="row"><span className="muted">To pay</span><span className="grand">{inr(t.payable)}</span></div>
               {t.savings > 0 && <div className="save-pill">Customer saves {inr(t.savings)} on MRP</div>}
-              <Btn kind="primary" size="lg" disabled={!cart.length || view.blocked.length > 0} onClick={() => openPay()}>Take payment <span className="kbd">F12</span></Btn>
+              <div className="pay-tiles" role="group" aria-label="Take payment">
+                {PAY_TILES.map(pt => (
+                  <button key={pt.mode} type="button" className={`pay-tile pay-${pt.mode}`} disabled={!canPay} onClick={() => openPay(pt.mode)} aria-label={`${pt.label}, shortcut ${pt.key}`}>
+                    <kbd className="pay-key">{pt.key}</kbd>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: pt.icon }} />
+                    <span>{pt.label}</span>
+                  </button>
+                ))}
+              </div>
               <Btn onClick={hold} disabled={!cart.length}>Hold bill <span className="kbd">F7</span></Btn>
             </div>
           </Card>
@@ -397,11 +419,11 @@ export default function POS() {
       {modal?.type === 'weight' && <WeightModal product={modal.product} onClose={() => setModal(null)} onAdd={kg => { setModal(null); addProduct(modal.product, kg); }} />}
       {modal?.type === 'price' && <PriceModal line={modal.line} onClose={() => modal.res(null)} onSave={v => modal.res(v)} />}
       {modal?.type === 'customer' && <CustomerModal onClose={() => setModal(null)} onPick={c => { setCust(c); setModal(null); scanRef.current?.focus(); }} />}
-      {modal?.type === 'pay' && <PayModal total={t.payable} customer={customer} due={due} settings={settings} onClose={() => setModal(null)} onDone={p => { setModal(null); finish(p); }} />}
+      {modal?.type === 'pay' && <PayModal initialMode={modal.mode || 'cash'} total={t.payable} customer={customer} due={due} settings={settings} onClose={() => setModal(null)} onDone={p => { setModal(null); finish(p); }} />}
       {modal?.type === 'receipt' && <ReceiptModal sale={modal.sale} settings={settings} onClose={() => { setModal(null); scanRef.current?.focus(); }} />}
       {modal?.type === 'recall' && <RecallModal onClose={() => setModal(null)} onPick={async h => {
         if (cart.length && !(await confirm('Replace the current bill with the held one?', 'Replace'))) return;
-        setCart(h.cart); setLevelState(h.level || 'retail'); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
+        setCart(h.cart); setPriceMode(h.priceMode || 'retail'); if (h.customerId) setCust(await db.customers.get(h.customerId)); await db.held.delete(h.id); setModal(null);
       }} />}
       {modal?.type === 'return' && <ReturnModal settings={settings} onClose={() => setModal(null)} onDone={async (bill, payments, orig) => {
         if (bill.totals.payable > (settings.supervisorRefundLimit || 500)) {
@@ -438,14 +460,22 @@ function OpenShift({ storeId }) {
 }
 
 function WeightModal({ product, onClose, onAdd }) {
+  const L = unitList(product);
+  const baseI = L.findIndex(x => x.base);
+  const [ui, setUi] = useState(baseI < 0 ? 0 : baseI);
   const [kg, setKg] = useState('');
   const [err, setErr] = useState('');
-  const read = async () => { try { setErr(''); setKg(String(await readScaleWeight())); } catch (e) { setErr(e.message); } };
+  const cur = L[ui];
+  const name = cur ? cur.name : 'kg';
+  const toBaseQty = v => (cur ? toBase(product, ui, v) : r2(Number(v)));
+  const read = async () => { try { setErr(''); const w = await readScaleWeight(); setKg(String(cur ? fromBase(product, ui, w) : w)); } catch (e) { setErr(e.message); } };
+  const baseQty = toBaseQty(kg);
   return (
-    <Modal title={`Weigh: ${product.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!(Number(kg) > 0)} onClick={() => onAdd(r2(Number(kg)))}>Add {kg ? `${kg} kg` : ''}</Btn></>}>
-      <form className="stack" onSubmit={e => { e.preventDefault(); Number(kg) > 0 && onAdd(r2(Number(kg))); }}>
-        <Input label="Weight in kg" type="number" step="0.005" autoFocus value={kg} onChange={e => setKg(e.target.value)} id="kg" />
-        <p className="small muted">{inr(product.price)}/kg · {kg ? `amount ${inr(Number(kg) * product.price)}` : ''}</p>
+    <Modal title={`Weigh: ${product.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={!(Number(kg) > 0)} onClick={() => onAdd(baseQty)}>Add {kg ? `${kg} ${name}` : ''}</Btn></>}>
+      <form className="stack" onSubmit={e => { e.preventDefault(); Number(kg) > 0 && onAdd(baseQty); }}>
+        {L.length > 1 && <Select label="Unit" value={ui} onChange={e => setUi(Number(e.target.value))} options={L.map(u => ({ value: u.i, label: u.name }))} id="wunit" />}
+        <Input label={`Weight in ${name}`} type="number" step="any" autoFocus value={kg} onChange={e => setKg(e.target.value)} id="kg" />
+        <p className="small muted">{inr(product.price * (cur ? cur.factor : 1))}/{name} · {kg ? `amount ${inr(baseQty * product.price)}` : ''}</p>
         {serialSupported() && <Btn type="button" onClick={read}>Read from scale</Btn>}
         {err && <p className="err small">{err}</p>}
       </form>
@@ -454,15 +484,12 @@ function WeightModal({ product, onClose, onAdd }) {
 }
 
 function PriceModal({ line, onClose, onSave }) {
-  const per = line.sell ? line.sell.price : line.unitPrice;
-  const cap = line.sell ? line.mrp * line.sell.size : line.mrp;
-  const unit = line.sell ? `${line.sell.unit} of ${line.sell.size}` : 'unit';
-  const [v, setV] = useState(String(per));
+  const [v, setV] = useState(String(line.unitPrice));
   return (
-    <Modal title={`Change price: ${line.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" disabled={Number(v) > cap} onClick={() => onSave(Number(v))}>Next: manager approval</Btn></>}>
-      <Input label={`New price per ${unit} (₹)`} type="number" value={v} onChange={e => setV(e.target.value)} autoFocus id="newprice" />
-      <p className="small muted" style={{ marginTop: 8 }}>Cost {inr(line.cost * (line.sell?.size || 1))} · MRP {inr(cap)}{line.sell ? ` (${inr(line.mrp)} each)` : ''}. Prices above MRP are not allowed.</p>
-      {Number(v) > cap && <p className="err small">Above MRP — not allowed by law.</p>}
+    <Modal title={`Change price: ${line.name}`} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" onClick={() => onSave(Number(v))}>Next: manager approval</Btn></>}>
+      <Input label="New price per unit (₹)" type="number" value={v} onChange={e => setV(e.target.value)} autoFocus id="newprice" />
+      <p className="small muted" style={{ marginTop: 8 }}>Cost {inr(line.cost)} · MRP {inr(line.mrp)}. Prices above MRP are not allowed.</p>
+      {Number(v) > line.mrp && <p className="err small">Above MRP — not allowed by law.</p>}
     </Modal>
   );
 }
@@ -478,7 +505,7 @@ function CustomerModal({ onClose, onPick }) {
     const digits = s.replace(/\D/g, '');
     let hits = /^\d+$/.test(s) ? await db.customers.where('phone').startsWith(digits).limit(8).toArray() : await db.customers.where('name').startsWithIgnoreCase(s).limit(8).toArray();
     if (hits.length < 8 && s.length >= 3) {
-      const more = await db.customers.filter(c => String(c.phone).includes(s) || String(c.name).toLowerCase().includes(s)).limit(8).toArray();
+      const more = (await db.customers.toArray()).filter(c => String(c.phone).includes(s) || String(c.name).toLowerCase().includes(s)).slice(0, 8);
       hits = [...hits, ...more.filter(m => !hits.some(h => h.id === m.id))].slice(0, 8);
     }
     return hits;
@@ -513,8 +540,8 @@ function CustomerModal({ onClose, onPick }) {
   );
 }
 
-function PayModal({ total, customer, due, settings, onClose, onDone }) {
-  const [mode, setMode] = useState('cash');
+function PayModal({ initialMode = 'cash', total, customer, due, settings, onClose, onDone }) {
+  const [mode, setMode] = useState(initialMode);
   const [tendered, setTendered] = useState('');
   const [ref, setRef] = useState('');
   const [split, setSplit] = useState([]);
@@ -624,7 +651,7 @@ function ReturnModal({ onClose, onDone }) {
     e?.preventDefault();
     const s = await db.sales.where('no').equals(no.trim().toUpperCase()).first() || await db.sales.where('no').equals(no.trim()).first();
     if (!s || s.type !== 'sale') { setErr('No sale with that bill number.'); return; }
-    const earlier = await db.sales.where('type').equals('return').filter(x => x.origNo === s.no).toArray();
+    const earlier = (await db.sales.where('type').equals('return').toArray()).filter(x => x.origNo === s.no);
     const returned = {};
     earlier.forEach(r => r.lines.forEach(l => (returned[l.productId] = (returned[l.productId] || 0) + l.qty)));
     setSale({ ...s, returned }); setErr('');

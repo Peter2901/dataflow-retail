@@ -4,7 +4,6 @@ import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Modal, Inp
 import { inr, num, uid, waLink, fmtDT, fmtDate, daysBetween, maskPhone, todayISO, validGSTIN, sum, addDays, localISO } from '../lib/util.js';
 import { tierFor, TIERS, audit } from '../lib/sales.js';
 import { partyBalances } from '../lib/parties.js';
-import { LEVELS } from '../lib/pricing.js';
 
 export function segment(c) {
   const rec = c.lastVisit ? daysBetween(new Date(c.lastVisit), new Date()) : 999;
@@ -106,7 +105,7 @@ function Detail({ c: init, due, canSeePhone, onClose }) {
           <Input label="Name" value={c.name} onChange={e => setC({ ...c, name: e.target.value })} id="c-name" />
           <Input label="Mobile" value={canSeePhone || !init.id ? c.phone : maskPhone(c.phone)} disabled={!canSeePhone && !!init.id} onChange={e => setC({ ...c, phone: e.target.value })} id="c-phone" />
           <Input label="Credit (udhaar) limit ₹" type="number" value={c.creditLimit} onChange={e => setC({ ...c, creditLimit: e.target.value })} id="c-limit" />
-          <Select label="Rate for this customer" value={c.priceLevel || 'retail'} onChange={e => setC({ ...c, priceLevel: e.target.value })} options={LEVELS.map(l => ({ value: l.value, label: l.label }))} id="c-level" hint="Shops buying in bulk get the Wholesale rate automatically at the counter" />
+          <Select label="Rate for this customer" value={c.priceLevel || 'retail'} onChange={e => setC({ ...c, priceLevel: e.target.value })} options={[{ value: 'retail', label: 'Retail' }, { value: 'wholesale', label: 'Wholesale' }]} id="c-level" hint="Shops buying in bulk get the Wholesale rate automatically at the counter" />
           <Input label="GSTIN (business customers)" value={c.gstin} onChange={e => setC({ ...c, gstin: e.target.value.toUpperCase() })} id="c-gstin" />
         </div>
         <Input label="Notes" value={c.notes || ''} onChange={e => setC({ ...c, notes: e.target.value })} id="c-notes" />

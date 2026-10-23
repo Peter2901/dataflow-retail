@@ -13,6 +13,7 @@ import Stickers from '../ui/Stickers.jsx';
 import { smartSearch } from '../lib/search.js';
 import { findDuplicates, mergeProducts, suggestHsnGst } from '../lib/productTools.js';
 import { useConfirm } from '../ui/kit.jsx';
+import { unitList, unitErrors, breakdown, plain, uomCode, retailUnitPrice, priceErrors } from '../lib/units.js';
 
 export default function Products() {
   const { storeId, user, param } = useApp();
@@ -65,9 +66,9 @@ export default function Products() {
           { label: 'Rack', key: 'rack' },
           { label: 'GST', num: true, render: p => p.gst + '%' },
           { label: 'MRP', num: true, render: p => inr(p.mrp) },
-          { label: 'Price', num: true, render: p => <>{inr(p.price)}{p.prices?.wholesale ? <div className="small muted">W {inr(p.prices.wholesale)}</div> : null}{(p.packs || []).map((k, i) => <div className="small muted" key={i}>{k.name}×{k.qty} {inr(k.price || p.price * k.qty, 0)}</div>)}</> },
+          { label: 'Price', num: true, render: p => inr(p.price) },
           { label: 'Margin', num: true, render: p => { if (!(p.cost > 0)) return <span className="muted">—</span>; const m = p.price ? ((p.price / (1 + p.gst / 100) - p.cost) / (p.price / (1 + p.gst / 100))) * 100 : 0; return <span style={{ color: m < 8 ? 'var(--bad)' : undefined }}>{num(m, 1)}%</span>; } },
-          { label: 'Stock', num: true, render: p => { const s = stock[p.id] || 0; return <span style={{ color: s <= p.reorderMin ? 'var(--bad)' : undefined }}>{num(s, p.uom === 'KG' ? 2 : 0)} {p.uom}</span>; } },
+          { label: 'Stock', num: true, render: p => { const s = stock[p.id] || 0; const bd = unitList(p).length ? breakdown(p, s) : ''; return <span style={{ color: s <= p.reorderMin ? 'var(--bad)' : undefined }}>{bd ? <>{bd}<div className="small muted">{plain(s)} {p.uom}</div></> : <>{num(s, p.uom === 'KG' ? 2 : 0)} {p.uom}</>}</span>; } },
           { label: '', render: p => p.active === false ? <Badge>Hidden</Badge> : p.sample ? <Badge tone="info">Sample</Badge> : null },
         ]} />
       </div>
@@ -96,7 +97,7 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <Field label="Barcode (EAN-13)"><div className="row gap-s"><input className="input" value={p.barcode} onChange={f('barcode')} id="p-bar" /><Btn size="sm" type="button" onClick={newEAN} title="Make a store barcode for items without one">New</Btn></div>
           {p.barcode && /^\d{8}$|^\d{12,14}$/.test(p.barcode) && <span className="field-hint" style={{ color: validEAN(p.barcode) ? 'var(--ok)' : 'var(--bad)' }}>{validEAN(p.barcode) ? (isStoreBarcode(p.barcode) ? 'Store barcode — print stickers for it' : 'Check digit OK') : 'Check digit wrong'}</span>}</Field>
         <Input label="Category" value={p.category} onChange={f('category')} id="p-cat" />
-        <Select label="Unit" value={p.uom} onChange={f('uom')} options={['PCS', 'KG', 'GM', 'LTR', 'ML', 'PACK']} id="p-uom" />
+        <Select label={unitList(p).length ? 'Unit (set by Units below)' : 'Unit'} value={unitList(p).length ? uomCode(unitList(p).find(x => x.base).name) : p.uom} onChange={f('uom')} disabled={unitList(p).length > 0} options={[...new Set(['PCS', 'KG', 'GM', 'LTR', 'ML', 'PACK', unitList(p).length ? uomCode(unitList(p).find(x => x.base).name) : p.uom])]} id="p-uom" />
         <Field label="HSN code" hint={hint ? `Suggested ${hint.hsn}${hint.gst != null ? ` · GST ${hint.gst}%` : ''} — ${hint.source}` : ''}>
           <div className="row gap-s"><input className="input" value={p.hsn} onChange={f('hsn')} id="p-hsn" /><Btn size="sm" type="button" onClick={async () => { const h = await suggestHsnGst(p.name, allProducts.filter(x => x.id !== p.id), { useAI: true }).catch(() => null); setHint(h); if (h) setP(x => ({ ...x, hsn: h.hsn, ...(h.gst != null ? { gst: h.gst } : {}) })); }}>Suggest</Btn></div>
         </Field>
@@ -104,35 +105,86 @@ function EditModal({ p: init, suppliers, onClose, onSave }) {
         <Input label="MRP (₹)" type="number" value={p.mrp} onChange={f('mrp')} id="p-mrp" />
         <Input label="Selling price incl. GST (₹)" type="number" value={p.price} onChange={f('price')} id="p-price" />
         <Input label="Purchase rate, landed (₹)" type="number" value={p.cost} onChange={f('cost')} hint={`Margin ${num(margin, 1)}% on taxable value`} id="p-cost" />
-        <Input label={`Wholesale price per ${p.uom === 'KG' ? 'kg' : 'piece'} (₹)`} type="number" value={p.prices?.wholesale ?? ''} onChange={e => setP({ ...p, prices: { ...(p.prices || {}), wholesale: e.target.value } })} id="p-whole" hint="Used when the bill is set to Wholesale (F6)" />
-        <Input label={`Godown price per ${p.uom === 'KG' ? 'kg' : 'piece'} (₹)`} type="number" value={p.prices?.godown ?? ''} onChange={e => setP({ ...p, prices: { ...(p.prices || {}), godown: e.target.value } })} id="p-godown" />
         <Input label="Rack (Aisle-Rack-Shelf)" value={p.rack} onChange={f('rack')} id="p-rack" />
         <Input label="Reorder when stock is at" type="number" value={p.reorderMin} onChange={f('reorderMin')} id="p-min" />
         <Input label="Maximum stock" type="number" value={p.reorderMax} onChange={f('reorderMax')} id="p-max" />
         <Input label="Case pack (units per carton)" type="number" value={p.casePack} onChange={f('casePack')} id="p-case" />
-        <div className="span3 pack-box">
-          <div className="row between"><b>Sold in packs too</b><span className="small muted">e.g. BAG of 10 at its own price. Stock stays in {p.uom === 'KG' ? 'kg' : 'pieces'}.</span></div>
-          {(p.packs || []).map((k, i) => {
-            const fk = n => e => setP({ ...p, packs: p.packs.map((x, j) => j === i ? { ...x, [n]: e.target.value } : x) });
-            return (
-              <div className="grid g6" key={i} style={{ marginTop: 8 }}>
-                <Input label="Pack name" value={k.name} onChange={fk('name')} id={`pk-name-${i}`} placeholder="BAG" />
-                <Input label="Pieces in it" type="number" value={k.qty} onChange={fk('qty')} id={`pk-qty-${i}`} />
-                <Input label="Retail price (₹)" type="number" value={k.price ?? ''} onChange={fk('price')} id={`pk-price-${i}`} hint={Number(k.qty) > 1 && Number(k.price) > 0 ? `₹${(k.price / k.qty).toFixed(2)} each` : ''} />
-                <Input label="Wholesale (₹)" type="number" value={k.wholesale ?? ''} onChange={fk('wholesale')} id={`pk-wh-${i}`} />
-                <Input label="Pack barcode" value={k.barcode ?? ''} onChange={fk('barcode')} id={`pk-bar-${i}`} placeholder="carton code" />
-                <Btn size="sm" type="button" style={{ alignSelf: 'flex-end' }} onClick={() => setP({ ...p, packs: p.packs.filter((_, j) => j !== i) })}>Remove</Btn>
-              </div>
-            );
-          })}
-          <Btn size="sm" type="button" style={{ marginTop: 8 }} onClick={() => setP({ ...p, packs: [...(p.packs || []), { name: 'BOX', qty: Number(p.casePack) > 1 ? p.casePack : 12, price: '' }] })}>Add a pack size</Btn>
-        </div>
         <Select label="Main supplier" value={p.vendorId} onChange={f('vendorId')} options={[{ value: '', label: '—' }, ...suppliers.map(s => ({ value: s.id, label: s.name }))]} id="p-vendor" />
         <Input label="Scale PLU (loose items)" value={p.plu} onChange={f('plu')} id="p-plu" />
         <label className="check"><input type="checkbox" checked={!!p.loose} onChange={f('loose')} /> Sold loose by weight</label>
         <label className="check"><input type="checkbox" checked={p.active !== false} onChange={f('active')} /> Show at the counter</label>
       </div>
+      <UnitsEditor p={p} setP={setP} />
+      <PriceLists p={p} setP={setP} />
     </Modal>
+  );
+}
+
+// Up to 3 units: biggest → smallest, e.g. Bag → Kg → Gram.
+function UnitsEditor({ p, setP }) {
+  const u = { names: ['', '', ''], c12: '', c23: '', ...(p.units || {}) };
+  const set = patch => setP(x => ({ ...x, units: { names: ['', '', ''], c12: '', c23: '', ...(x.units || {}), ...patch } }));
+  const setName = i => e => set({ names: u.names.map((n, j) => (j === i ? e.target.value : n)) });
+  const names = u.names.map(n => String(n).trim());
+  const k = names[2] ? 3 : names[1] ? 2 : 0;
+  const L = unitList(p);
+  const baseNow = L.find(x => x.base);
+  const price = Number(p.price) || 0, cost = Number(p.cost) || 0;
+  const errs = unitErrors(p);
+  return (
+    <div className="units-box">
+      <div className="units-head"><b>Units (optional)</b><span className="small muted">Buy in a big unit, sell in a small one. Leave empty if the product has one unit.</span></div>
+      <div className="grid g3">
+        <Input label="Unit 1 — biggest (e.g. Bag)" value={u.names[0]} onChange={setName(0)} id="p-u1" />
+        <Input label="Unit 2 — middle (e.g. Kg)" value={u.names[1]} onChange={setName(1)} id="p-u2" />
+        <Input label="Unit 3 — smallest (e.g. Gram)" value={u.names[2]} onChange={setName(2)} id="p-u3" />
+        {names[0] && names[1] && <Input label={`1 ${names[0]} = how many ${names[1]}?`} type="number" step="any" value={u.c12} onChange={e => set({ c12: e.target.value })} id="p-c12" />}
+        {names[2] && <Input label={`1 ${names[1]} = how many ${names[2]}?`} type="number" step="any" value={u.c23} onChange={e => set({ c23: e.target.value })} id="p-c23" />}
+        {k > 0 && <Select label="Stock, price and cost are kept per" value={baseNow ? baseNow.i : (u.base ?? '')} onChange={e => set({ base: Number(e.target.value) })}
+          options={names.slice(0, k).map((n, i) => ({ value: i, label: n || `Unit ${i + 1}` }))} id="p-ubase" />}
+      </div>
+      {baseNow && <div className="small muted" style={{ marginTop: 6 }}>
+        MRP, selling price and purchase rate above are <b>per {baseNow.name}</b>.
+        {price > 0 && <> Retail: {L.map(x => `₹${plain(retailUnitPrice(p, x.i), 2)} per ${x.name}`).join(' · ')}.</>}
+        {cost > 0 && <> Buying: {L.map(x => `₹${plain(cost * x.factor, 2)} per ${x.name}`).join(' · ')}.</>}
+      </div>}
+      {errs.map(e => <div key={e} className="err small" style={{ marginTop: 4 }}>{e}</div>)}
+    </div>
+  );
+}
+
+// Retail prices (Unit 1 and Unit 2) and wholesale prices (every unit). Blank = worked out from the selling price.
+function PriceLists({ p, setP }) {
+  const L = unitList(p);
+  const price = Number(p.price) || 0;
+  const setR = (i, v) => setP(x => { const r = [...(x.prices?.r || ['', ''])]; r[i] = v; return { ...x, prices: { r, w: x.prices?.w || ['', '', ''] } }; });
+  const setW = (i, v) => setP(x => { const w = [...(x.prices?.w || ['', '', ''])]; w[i] = v; return { ...x, prices: { r: x.prices?.r || ['', ''], w } }; });
+  const errs = priceErrors(p);
+  const ph = v => (v > 0 ? plain(v, 2) : '');
+  return (
+    <div className="units-box">
+      <div className="units-head"><b>Retail and wholesale prices</b><span className="small muted">All prices include GST. Leave a box empty to use the automatic price.</span></div>
+      {!L.length ? (
+        <div className="grid g3">
+          <Input label="Retail price (₹) — the Selling price above" value={p.price} onChange={e => setP({ ...p, price: e.target.value })} id="p-retail1" />
+          <Input label="Wholesale price (₹)" type="number" step="any" value={p.wholesale ?? ''} onChange={e => setP({ ...p, wholesale: e.target.value })} placeholder={ph(price)} id="p-wh1" />
+        </div>
+      ) : (
+        <div className="stack-s">
+          <div><div className="small muted" style={{ marginBottom: 4 }}>Retail — price per {L[0].name} and per {L[1].name}</div>
+            <div className="grid g3">
+              {[0, 1].map(i => L[i].base
+                ? <Input key={i} label={`Retail ₹ per ${L[i].name} (= Selling price)`} type="number" step="any" value={p.price} onChange={e => setP({ ...p, price: e.target.value })} id={`p-r${i}`} />
+                : <Input key={i} label={`Retail ₹ per ${L[i].name}`} type="number" step="any" value={p.prices?.r?.[i] ?? ''} onChange={e => setR(i, e.target.value)} placeholder={ph(retailUnitPrice(p, i))} id={`p-r${i}`} />)}
+            </div></div>
+          <div><div className="small muted" style={{ marginBottom: 4 }}>Wholesale — price per {L.map(u => u.name).join(', ')}</div>
+            <div className="grid g3">
+              {L.map(u => <Input key={u.i} label={`Wholesale ₹ per ${u.name}`} type="number" step="any" value={p.prices?.w?.[u.i] ?? ''} onChange={e => setW(u.i, e.target.value)} placeholder={ph(retailUnitPrice(p, u.i))} id={`p-w${u.i}`} />)}
+            </div></div>
+        </div>
+      )}
+      {errs.map(e => <div key={e} className="err small" style={{ marginTop: 4 }}>{e}</div>)}
+    </div>
   );
 }
 

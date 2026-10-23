@@ -5,6 +5,7 @@ import { readSheet, mapAnyProducts, checkProducts, templateFile, exportRows } fr
 import { suggestHsnGst } from '../lib/productTools.js';
 import { getStatus as getSyncStatus, onSyncStatus } from '../lib/sync.js';
 import { BLANK_PRODUCT } from '../lib/products.js';
+import { unitList, retailUnitPrice, wholesaleUnitPrice, plain } from '../lib/units.js';
 import { addBatch } from '../lib/stock.js';
 import { post, partyAccount } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
@@ -80,8 +81,11 @@ function ImportProducts() {
           ...(r.rack ? { rack: r.rack } : {}), ...(r.reorderMin ? { reorderMin: r.reorderMin } : {}), ...(r.reorderMax ? { reorderMax: r.reorderMax } : {}),
           ...(r.vendorId ? { vendorId: r.vendorId } : {}), ...(r.packSize ? { packSize: r.packSize } : {}),
         };
-        if (r.packs?.length) rec.packs = r.packs; else if (r.packs) delete rec.packs;
-        if (r.prices && Object.keys(r.prices).length) rec.prices = r.prices;
+        // Units (Bag / Pcs, Kg / Gram) and retail / wholesale prices per unit (units.js).
+        if (r.units) rec.units = r.units;
+        if (r.prices) rec.prices = r.prices;
+        if (r.wholesale) rec.wholesale = r.wholesale;
+        if (r.godown) rec.godown = r.godown;
         if (r.plu) rec.plu = r.plu; else if (rec.loose && !rec.plu) rec.plu = String(++plu);
         delete rec.sample;
         prods.push(rec);
@@ -110,7 +114,12 @@ function ImportProducts() {
   };
   const rows = res ? res.rows.filter(r => show === 'all' || (show === 'errors' ? r.errors.length : !r.errors.length && r.warnings.length)) : [];
   const hints = res ? res.rows.filter(r => !r.hsn && r.hsnHint).length : 0;
-  const price = r => <>₹{r.price}{r.uom === 'KG' ? '/kg' : ''} (MRP {r.mrp}){r.prices?.wholesale ? ` · W ₹${r.prices.wholesale}` : ''}{(r.packs || []).map((k, i) => <span key={i}> · {k.name}×{k.qty} ₹{k.price}{k.wholesale ? ` (W ₹${k.wholesale})` : ''}</span>)}</>;
+  // "₹49 (MRP 49) · W ₹47.5 · Bag×10 ₹490 (W ₹475)"
+  const price = r => {
+    const L = unitList(r), base = L.find(u => u.base);
+    const w = base ? wholesaleUnitPrice(r, base.i) : r.wholesale;
+    return <>₹{r.price}{base ? `/${base.name}` : r.uom === 'KG' ? '/kg' : ''} (MRP {r.mrp}){w && w !== r.price ? ` · W ₹${plain(w, 2)}` : ''}{L.filter(u => !u.base).map(u => <span key={u.i}> · {u.name}×{plain(u.factor)} ₹{plain(retailUnitPrice(r, u.i), 2)} (W ₹{plain(wholesaleUnitPrice(r, u.i), 2)})</span>)}</>;
+  };
   return (
     <div className="stack">
       <Card title="Load the product Excel">
@@ -125,7 +134,7 @@ function ImportProducts() {
           <Stat label="Ready to load" value={res.ok} tone="ok" sub={res.updates ? `${res.updates} already in the system (update)` : ''} />
           <Stat label="With errors (skipped)" value={res.withErrors} tone={res.withErrors ? 'bad' : undefined} />
           <Stat label="Load, but please check" value={res.withWarnings} tone={res.withWarnings ? 'warn' : undefined} />
-          <Stat label="Sold in packs / loose by kg" value={`${res.rows.filter(r => r.packs?.length).length} / ${res.rows.filter(r => r.loose).length}`} sub={`${res.rows.filter(r => r.prices?.wholesale).length} with wholesale rate`} />
+          <Stat label="Sold in packs / loose by kg" value={`${res.rows.filter(r => r.units && !r.loose).length} / ${res.rows.filter(r => r.loose).length}`} sub={`${res.rows.filter(r => r.wholesale || r.prices?.w?.some(Boolean)).length} with wholesale rate`} />
         </div>
         <Card title={`Checked: ${file}`} actions={<><Btn size="sm" kind={show === 'errors' ? 'primary' : 'default'} onClick={() => setShow('errors')}>Errors</Btn><Btn size="sm" kind={show === 'warn' ? 'primary' : 'default'} onClick={() => setShow('warn')}>To check</Btn><Btn size="sm" kind={show === 'all' ? 'primary' : 'default'} onClick={() => setShow('all')}>All</Btn></>}>
           <p className="small muted" style={{ marginBottom: 8 }}>Read as {layout}. Columns found: {Object.entries(cols).map(([k, v]) => `${String(v).trim()} → ${k}`).join(' · ')}</p>

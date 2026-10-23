@@ -139,6 +139,22 @@ GST and payroll rates are configurable; confirm them with your accountant.
 - Setup screens (Import & setup, Security & audit, Settings) are folded under **Setup** in the menu.
 - Code: `src/pages/Hub.jsx`, menu and bottom tabs in `src/App.jsx`.
 
+## Three units per product
+
+On a product, open **Units (optional)** and fill Unit 1 (biggest), Unit 2 and Unit 3 (smallest), for example
+Bag → Kg → Gram with `1 Bag = 30 Kg` and `1 Kg = 1000 Gram`. Pick which unit stock, MRP, price and purchase rate are
+kept in (Kg here). Everything inside the app stays in that one unit, so GST, stock and reports are unchanged.
+
+- **Counter:** a unit box on each bill line (Bag / Kg / Gram). The bill prints what was sold, e.g. `550 Gram`.
+- **Purchase bill:** "Buying in Bag / Kg / Gram" on the line; the rate and pieces-per-unit fill in by themselves.
+- **Stock and Products:** show `1 Bag 29 Kg 450 Gram` next to the plain number.
+- **Retail and wholesale prices:** on the product, retail has a price per Unit 1 and per Unit 2, and wholesale has a price
+  per Unit 1, 2 and 3 (one wholesale price if the product has one unit). An empty box uses the automatic price
+  (selling price × units). Prices cannot be above MRP, and wholesale cannot be below the purchase rate.
+  At the counter, a **Retail / Wholesale** switch sits above the items. A cashier needs a manager PIN for Wholesale.
+  The bill prints "Wholesale rate". Excel columns: `RETAIL_PRICE_UNIT_1/2`, `WHOLESALE_PRICE_UNIT_1/2/3`, `WHOLESALE_PRICE`.
+- **Excel:** columns `UNIT_1`, `UNIT_2`, `UNIT_3`, `UNIT_1_TO_2`, `UNIT_2_TO_3`, `STOCK_UNIT` (template has an example).
+
 ## GST Saathi
 
 Money & team › **GST Saathi** walks through the month in five steps: due dates (monthly or quarterly/QRMP,
@@ -162,3 +178,12 @@ the GSTR-2B match (with IMS guidance) and the GSTR-3B summary including ITC give
 - **Bilingual bills:** fill *Name in Hindi / Odia* on a product (or a `LOCAL_NAME` column in the Excel import) and it
   prints under the English name on the receipt.
 - The Hindi and Odia wording was written by Claude: have a native speaker check it once before wide use.
+
+## New look (from the approved design)
+
+- Colours, menu groups and payment tiles follow the design canvas "DataFlow Retail — new layout".
+- **Light / dark switch** (sun / moon) sits next to EN / हि / ଓ at the bottom of the menu; each device keeps its own choice.
+- **Billing counter keys:** F9 Cash · F10 UPI · F11 Card · F12 Udhaar · F7 hold · F8 recall · F6 return · F2 scan · F3 customer.
+  (In a normal Chrome window F11 may switch full screen; the installed Windows app does not have that problem.)
+- **Store & owner details** (menu, above Setup): store, owner, GSTIN, legal name, FSSAI, UPI, logo, bill footer. It prints on every bill.
+- **Phone tabs:** Home · Stock · Buy · Money (GST Saathi) · AI.
