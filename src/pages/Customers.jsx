@@ -53,7 +53,7 @@ function List({ customers, dues, canSeePhone, onOpen }) {
       <div className="row gap-s wrap"><SearchBox value={q} onChange={setQ} placeholder="Search name or mobile" />
         <select className="input" style={{ width: 200 }} value={seg} onChange={e => setSeg(e.target.value)} aria-label="Segment"><option value="">All groups</option>{segs.map(s => <option key={s} value={s}>{segment({ champ: { lastVisit: Date.now(), visits: 20 }, loyal: { lastVisit: Date.now(), visits: 5 }, reg: { lastVisit: Date.now(), visits: 1 }, risk: { lastVisit: Date.now() - 40 * 864e5 }, sleep: { lastVisit: Date.now() - 90 * 864e5 }, new: { createdAt: Date.now() } }[s]).label} ({count(s)})</option>)}</select></div>
       <div className="card"><Table rows={rows} onRow={onOpen} cols={[
-        { label: 'Customer', render: c => <><b>{c.name}</b><div className="small muted">{canSeePhone ? c.phone : maskPhone(c.phone)}{c.gstin ? ' · B2B' : ''}</div></> },
+        { label: 'Customer', render: c => <><b>{c.name}</b><div className="small muted">{canSeePhone ? c.phone : maskPhone(c.phone)}{c.gstin ? ' · B2B' : ''}{c.wholesale ? ' · Wholesale' : ''}</div></> },
         { label: 'Tier', render: c => <Badge tone={c.tier.key === 'Platinum' ? 'accent' : c.tier.key === 'Gold' ? 'warn' : 'neutral'}>{c.tier.key}</Badge> },
         { label: 'Group', render: c => <Badge tone={c.seg.tone}>{c.seg.label}</Badge> },
         { label: 'Spend this year', num: true, render: c => inr(c.yearSpend || 0, 0) },
@@ -105,6 +105,7 @@ function Detail({ c: init, due, canSeePhone, onClose }) {
         </div>
         <Input label="Notes" value={c.notes || ''} onChange={e => setC({ ...c, notes: e.target.value })} id="c-notes" />
         <label className="check"><input type="checkbox" checked={!!c.consentWhatsApp} onChange={e => setC({ ...c, consentWhatsApp: e.target.checked })} /> Agrees to get bills and offers on WhatsApp</label>
+        <label className="check"><input type="checkbox" checked={!!c.wholesale} disabled={user.role === 'cashier'} onChange={e => setC({ ...c, wholesale: e.target.checked })} /> Wholesale customer — bills switch to wholesale prices on their own{user.role === 'cashier' ? ' (owner or manager can change this)' : ''}</label>
       </div>}
       {tab === 'bills' && <Table rows={sales} cols={[{ label: 'Bill', key: 'no' }, { label: 'When', render: s => fmtDT(s.ts) }, { label: 'Items', num: true, render: s => s.lines.length }, { label: 'Amount', num: true, render: s => (s.type === 'return' ? '−' : '') + inr(s.totals.payable) }, { label: 'Paid by', render: s => s.payments.map(p => p.mode).join(' + ') }]} />}
       {tab === 'points' && <Table rows={pts} cols={[{ label: 'When', render: t => fmtDT(t.ts) }, { label: 'Type', key: 'type' }, { label: 'Bill', key: 'ref' }, { label: 'Points', num: true, render: t => (t.points > 0 ? '+' : '') + t.points }]} empty="No points yet." />}

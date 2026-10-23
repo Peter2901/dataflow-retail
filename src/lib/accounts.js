@@ -96,15 +96,39 @@ export async function postExpense({ acc, amount, mode, narration, ts }) {
 }
 
 // Balances: positive = debit balance.
+const addEntry = (b, e) => e.lines.forEach(l => (b[l.acc] = r2((b[l.acc] || 0) + (l.dr || 0) - (l.cr || 0))));
+
+// All-time balances are kept as a saved total up to the start of today plus today's entries, so the
+// Accounts screens do not re-add lakhs of entries each time. If any older entry was added since (a counter
+// synced late), the count before the saved point changes and the total is worked out again from scratch.
+async function allTimeBalances() {
+  const cp = new Date().setHours(0, 0, 0, 0);
+  const saved = (await db.syncMeta.get('bal:cp'))?.v;
+  let b = null;
+  if (saved && saved.cp <= cp && (await db.journal.where('ts').below(saved.cp).count()) === saved.n) {
+    b = { ...saved.b };
+    if (saved.cp < cp) await db.journal.where('ts').between(saved.cp, cp, true, false).each(e => addEntry(b, e));
+  } else {
+    b = {};
+    await db.journal.where('ts').below(cp).each(e => addEntry(b, e));
+  }
+  if (!saved || saved.cp !== cp) await db.syncMeta.put({ key: 'bal:cp', v: { cp, n: await db.journal.where('ts').below(cp).count(), b } });
+  await db.journal.where('ts').aboveOrEqual(cp).each(e => addEntry(b, e));
+  return b;
+}
+
 export async function balances(untilTs = Infinity, fromTs = -Infinity) {
-  const j = await db.journal.toArray();
+  if (untilTs === Infinity && fromTs === -Infinity) return allTimeBalances();
   const b = {};
-  j.filter(e => e.ts <= untilTs && e.ts >= fromTs).forEach(e => e.lines.forEach(l => (b[l.acc] = r2((b[l.acc] || 0) + (l.dr || 0) - (l.cr || 0)))));
+  const lo = fromTs === -Infinity ? -Infinity : fromTs, hi = untilTs === Infinity ? Infinity : untilTs;
+  // Only the asked dates are read (ts index).
+  await db.journal.where('ts').between(lo, hi, true, true).each(e => addEntry(b, e));
   return b;
 }
 
 export async function ledger(accId) {
-  const j = await db.journal.orderBy('ts').toArray();
+  // A customer's or supplier's ledger reads only their entries (parties index).
+  const j = /^(cust|supp):/.test(accId) ? (await db.journal.where('parties').equals(accId).toArray()).sort((a, b) => a.ts - b.ts) : await db.journal.orderBy('ts').toArray();
   let run = 0;
   const rows = [];
   j.forEach(e => e.lines.filter(l => l.acc === accId).forEach(l => {

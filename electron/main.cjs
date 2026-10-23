@@ -24,10 +24,14 @@ function create() {
 // Receipt printing straight to the default (thermal) printer, no dialog.
 ipcMain.handle('print', () => new Promise(res => win.webContents.print({ silent: true, printBackground: true }, ok => res(ok))));
 // Daily automatic backup to Documents\DataFlow Retail Backups.
-ipcMain.handle('saveBackup', (e, name, json) => {
+ipcMain.handle('saveBackup', (e, name, data) => {
   const dir = path.join(app.getPath('documents'), 'DataFlow Retail Backups');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, name), json);
+  const safe = path.basename(String(name)).replace(/[^\w.-]/g, '_');
+  fs.writeFileSync(path.join(dir, safe), typeof data === 'string' ? data : Buffer.from(data));
+  // Keep the newest 14 daily backups.
+  const old = fs.readdirSync(dir).filter(f => /^backup-.*\.(json|dfrbak)$/.test(f)).sort().reverse().slice(14);
+  for (const f of old) { try { fs.unlinkSync(path.join(dir, f)); } catch { /* in use */ } }
   return dir;
 });
 

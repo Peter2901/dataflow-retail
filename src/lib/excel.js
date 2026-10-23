@@ -127,6 +127,14 @@ export function exportRows(filename, sheetName, rows) {
   download(filename, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
 
+/** Several sheets in one Excel file, e.g. the CA pack. sheets = [{ name, rows }] */
+export function exportBook(filename, sheets) {
+  const wb = XLSX.utils.book_new();
+  for (const { name, rows } of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows && rows.length ? rows : [{ note: 'Nothing for this period' }]), String(name).slice(0, 31));
+  const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  download(filename, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+}
+
 export function exportProducts(products, stock = {}) {
   exportRows(`products-${todayISO()}.xlsx`, 'Products', products.map(p => ({
     SKU_CODE: p.id, BARCODE_EAN: p.barcode, ITEM_NAME: p.name, LOCAL_NAME: p.localName || '', CATEGORY: p.category, BRAND: p.brand, UOM: p.uom, CASE_PACK_QTY: p.casePack,

@@ -37,7 +37,7 @@ export async function loadPurchaseContext(storeId) {
   }
   const since = Date.now() - 30 * 86400000;
   const sold = {};
-  (await db.sales.where('storeId').equals(storeId).toArray()).filter(s => s.ts >= since && s.type === 'sale' && s.status !== 'void')
+  (await db.sales.where('ts').above(since).filter(s => s.storeId === storeId && s.type === 'sale' && s.status !== 'void').toArray())
     .forEach(s => s.lines.forEach(l => (sold[l.productId] = (sold[l.productId] || 0) + n(l.qty))));
   const daily = Object.fromEntries(Object.entries(sold).map(([k, v]) => [k, v / 30]));
   return { settings, purchases, history, daily, stock: await stockMap(storeId) };

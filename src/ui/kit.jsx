@@ -84,15 +84,19 @@ export function Tabs({ tabs, value, onChange }) {
   return <div className="tabs" role="tablist">{tabs.map(t => <button key={t.value} role="tab" aria-selected={value === t.value} className={`tab ${value === t.value ? 'on' : ''}`} onClick={() => onChange(t.value)}>{t.label}</button>)}</div>;
 }
 
-export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField = 'id', foot }) {
+// Long lists show the first `page` rows and a "Show more" button, so a store with lakhs of
+// rows never draws them all at once (search and filters still work on every row).
+export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField = 'id', foot, page = 300 }) {
+  const [shown, setShown] = useState(page);
   if (!rows) return <div className="muted pad">Loading…</div>;
   if (!rows.length) return <div className="empty">{empty}</div>;
+  const view = rows.length > shown ? rows.slice(0, shown) : rows;
   return (
     <div className="table-wrap">
       <table className="tbl">
         <thead><tr>{cols.map(c => <th key={c.key || c.label} className={c.num ? 'num' : ''}>{c.label}</th>)}</tr></thead>
         <tbody>
-          {rows.map((r, i) => (
+          {view.map((r, i) => (
             <tr key={r[keyField] ?? i} onClick={onRow ? () => onRow(r) : undefined} className={onRow ? 'clickable' : ''}>
               {cols.map(c => <td key={c.key || c.label} className={c.num ? 'num' : ''}>{c.render ? c.render(r) : r[c.key]}</td>)}
             </tr>
@@ -100,6 +104,8 @@ export function Table({ cols, rows, empty = 'Nothing here yet.', onRow, keyField
         </tbody>
         {foot && <tfoot><tr>{cols.map((c, i) => <td key={i} className={c.num ? 'num' : ''}>{foot[c.key] ?? ''}</td>)}</tr></tfoot>}
       </table>
+      {rows.length > shown && <div className="row gap-s table-more"><span className="small muted">{`Showing ${shown.toLocaleString('en-IN')} of ${rows.length.toLocaleString('en-IN')}`}</span>
+        <button className="btn btn-sm" onClick={() => setShown(x => x + page * 3)}>Show more</button></div>}
     </div>
   );
 }

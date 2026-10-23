@@ -1,9 +1,27 @@
-// Sign the Android app with the repo's fixed key (android-signing/debug.keystore), so a new
-// APK installs over the old one without losing the phone's setup. Runs in CI after `cap add`.
+// Sign the Android app. Two ways:
+//  1. PRIVATE RELEASE KEY (for selling): set four GitHub repository secrets —
+//     ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+//     The workflow writes the keystore to android-signing/release.keystore (never committed) and
+//     builds a release APK signed with it. Keys come only from secrets; nothing secret is in this repo.
+//  2. Otherwise the old TEST key in android-signing/debug.keystore (public — only for testing).
+// Runs in CI after `cap add`. Prints which one it used.
 const fs = require('fs');
 const f = 'android/app/build.gradle';
 let s = fs.readFileSync(f, 'utf8');
-if (!s.includes('android-signing/debug.keystore')) {
+const release = !!(process.env.ANDROID_KEYSTORE_PASSWORD && process.env.ANDROID_KEY_ALIAS && fs.existsSync('android-signing/release.keystore'));
+if (release && !s.includes('signingConfigs.release')) {
+  s = s.replace(/android\s*\{/, m => `${m}
+    signingConfigs {
+        release {
+            storeFile file("../../android-signing/release.keystore")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+        }
+    }
+`);
+  s = s.replace(/buildTypes\s*\{\s*release\s*\{/, m => `${m}\n            signingConfig signingConfigs.release`);
+} else if (!release && !s.includes('android-signing/debug.keystore')) {
   s = s.replace(/android\s*\{/, m => `${m}
     signingConfigs {
         debug {
@@ -19,4 +37,5 @@ if (!s.includes('android-signing/debug.keystore')) {
 const n = Number(process.env.GITHUB_RUN_NUMBER || 1);
 s = s.replace(/versionCode \d+/, `versionCode ${n}`).replace(/versionName "[^"]*"/, `versionName "1.0.${n}"`);
 fs.writeFileSync(f, s);
-console.log('signing config:', s.includes('android-signing/debug.keystore') ? 'set' : 'MISSING', '| version', n);
+fs.appendFileSync(process.env.GITHUB_ENV || '/dev/null', `APK_KIND=${release ? 'release' : 'debug'}\n`);
+console.log('signing:', release ? 'PRIVATE release key (from secrets)' : 'TEST key (public) — set the 4 ANDROID_* secrets before selling', '| version', n);

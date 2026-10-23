@@ -35,9 +35,11 @@ async function nextInvoiceNo(settings, ts) {
 // counters sit in their own chains and never break this one.
 export const chainKey = s => String(s.no || '').split('/')[0];
 
+// Newest bill first through the chainSeq index, stopping at this counter's last bill —
+// a few rows read even with lakhs of bills (it used to read every bill of the store on each sale).
 export async function lastSaleHash(storeId, key) {
-  const all = (await db.sales.where('storeId').equals(storeId).sortBy('chainSeq')).filter(s => chainKey(s) === key);
-  return all.length ? all[all.length - 1].hash : 'GENESIS';
+  const last = await db.sales.orderBy('chainSeq').reverse().filter(s => s.storeId === storeId && chainKey(s) === key).first();
+  return last ? last.hash : 'GENESIS';
 }
 
 export const chainInput = s => [s.prevHash, s.chainSeq, s.no, s.ts, s.totals.payable, s.lines.length, sum(s.lines, l => l.taxable).toFixed(2)].join('|');
@@ -45,7 +47,7 @@ export const chainInput = s => [s.prevHash, s.chainSeq, s.no, s.ts, s.totals.pay
 /**
  * bill: result of computeBill; payments: [{mode, amount, ref}]
  */
-export async function saveSale({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail' }) {
+export async function saveSale({ bill, payments, customer, user, shiftId, storeId, type = 'sale', origNo = null, pointsUsed = 0, ts = Date.now(), orderId = null, b2b = null, priceMode = 'retail', composition = false }) {
   const settings = await getSettings();
   const no = await nextInvoiceNo(settings, ts);
   const prevHash = await lastSaleHash(storeId, chainKey({ no }));
@@ -58,6 +60,7 @@ export async function saveSale({ bill, payments, customer, user, shiftId, storeI
     customerPhone: customer?.phone || '', b2b, lines: bill.lines, totals: bill.totals, billDiscounts: bill.billDiscounts || [],
     payments, pointsUsed, pointsEarned: 0, prevHash,
     ...(priceMode === 'wholesale' ? { priceMode } : {}),
+    ...(composition ? { composition: true } : {}),
   };
   // Loyalty: points on what was paid (not on points used), with tier multiplier.
   if (customer && type === 'sale') {

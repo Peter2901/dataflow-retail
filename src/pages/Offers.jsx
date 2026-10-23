@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card } from '../ui/kit.jsx';
+import ProductPicker from '../ui/ProductPicker.jsx';
 import { inr, uid } from '../lib/util.js';
 import { OFFER_TYPES } from '../lib/offers.js';
 import { audit } from '../lib/sales.js';
@@ -48,14 +49,13 @@ export default function Offers() {
 function OfferModal({ o: init, products, onClose, onSave }) {
   const [o, setO] = useState(init);
   const f = (k, num) => e => setO({ ...o, [k]: num ? Number(e.target.value) : e.target.value });
-  const pOpts = [{ value: '', label: 'Choose product' }, ...products.map(p => ({ value: p.id, label: `${p.name} (₹${p.price})` }))];
   const cats = [...new Set(products.map(p => p.category))];
   return (
     <Modal title={init.id ? 'Edit offer' : 'New offer'} onClose={onClose} footer={<><Btn onClick={onClose}>Cancel</Btn><Btn kind="primary" onClick={() => onSave(o)}>Save offer</Btn></>}>
       <div className="stack">
         <Select label="Kind of offer" value={o.type} onChange={e => setO({ ...o, type: e.target.value, slabs: o.slabs || [{ minQty: 3, price: '' }], productIds: o.productIds || ['', ''] })} options={Object.entries(OFFER_TYPES).map(([v, l]) => ({ value: v, label: l }))} id="of-type" />
         <Input label="Name shown on the bill" value={o.name} onChange={f('name')} id="of-name" />
-        {(o.type === 'qtySlab' || o.type === 'bxgy') && <Select label="Product" value={o.productId || ''} onChange={f('productId')} options={pOpts} id="of-prod" />}
+        {(o.type === 'qtySlab' || o.type === 'bxgy') && <ProductPicker label="Product" products={products} value={o.productId || ''} onChange={id => setO({ ...o, productId: id })} id="of-prod" />}
         {o.type === 'qtySlab' && (o.slabs || []).map((s, i) => (
           <div className="row gap-s" key={i}>
             <Input label="From quantity" type="number" value={s.minQty} onChange={e => { const sl = [...o.slabs]; sl[i] = { ...s, minQty: Number(e.target.value) }; setO({ ...o, slabs: sl }); }} id={`of-min${i}`} />
@@ -66,8 +66,8 @@ function OfferModal({ o: init, products, onClose, onSave }) {
         {o.type === 'bxgy' && <div className="grid g3"><Input label="Buy" type="number" value={o.buy || 2} onChange={f('buy', 1)} id="of-buy" /><Input label="Get" type="number" value={o.get || 1} onChange={f('get', 1)} id="of-get" /><Input label="At % off (100 = free)" type="number" value={o.pct ?? 100} onChange={f('pct', 1)} id="of-pct" /></div>}
         {o.type === 'category' && <div className="grid g2"><Select label="Category" value={o.category || ''} onChange={f('category')} options={['', ...cats]} id="of-cat" /><Input label="% off" type="number" value={o.pct || ''} onChange={f('pct', 1)} id="of-cpct" /></div>}
         {o.type === 'combo' && <>
-          <Select label="First product" value={o.productIds?.[0] || ''} onChange={e => setO({ ...o, productIds: [e.target.value, o.productIds?.[1] || ''] })} options={pOpts} id="of-c1" />
-          <Select label="Second product" value={o.productIds?.[1] || ''} onChange={e => setO({ ...o, productIds: [o.productIds?.[0] || '', e.target.value] })} options={pOpts} id="of-c2" />
+          <ProductPicker label="First product" products={products} value={o.productIds?.[0] || ''} onChange={id => setO({ ...o, productIds: [id, o.productIds?.[1] || ''] })} id="of-c1" />
+          <ProductPicker label="Second product" products={products} value={o.productIds?.[1] || ''} onChange={id => setO({ ...o, productIds: [o.productIds?.[0] || '', id] })} id="of-c2" />
           <Input label="₹ off when bought together" type="number" value={o.off || ''} onChange={f('off', 1)} id="of-off" />
         </>}
         {o.type === 'billBuster' && <div className="grid g2"><Input label="Bill of at least (₹)" type="number" value={o.minAmount || ''} onChange={f('minAmount', 1)} id="of-minamt" /><Input label="₹ off" type="number" value={o.off || ''} onChange={f('off', 1)} id="of-boff" /></div>}

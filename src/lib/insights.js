@@ -251,7 +251,7 @@ export async function customerHabits(storeId) {
 export async function udhaarPlan() {
   const ageing = await customerAgeing();
   const cm = Object.fromEntries((await db.customers.toArray()).map(c => [c.id, c]));
-  const reminders = (await db.audit.toArray()).filter(a => a.action === 'udhaar_reminder' || a.action === 'reminder');
+  const reminders = await db.audit.where('action').anyOf('udhaar_reminder', 'reminder').toArray();
   const out = [];
   for (const [cid, a] of Object.entries(ageing)) {
     const c = cm[cid]; if (!c) continue;
@@ -337,6 +337,11 @@ export async function morningTodo(storeId) {
   for (const f of fest.slice(0, 2)) todo.push({ page: 'smart', param: { tab: 'festivals' }, money: r2(sum(f.items, i => i.order * (i.product.price || 0))), text: `${f.festival.name} in ${f.inDays} day(s): stock up on ${f.items.filter(i => i.order > 0).length} item(s).` });
   const staff = await staffAlerts(storeId);
   if (staff.alerts.length) todo.push({ page: 'smart', param: { tab: 'staff' }, money: 1000, text: `${staff.alerts.length} staff alert(s) to look at.` });
+  // Backups: the Windows app makes one a day; elsewhere remind after 3 days (not on phones — the counter has the data).
+  if (s.deviceMode !== 'mobile') {
+    const age = s.backupAt ? Math.floor((Date.now() - s.backupAt) / 864e5) : null;
+    if (age == null || age >= 3) todo.push({ page: 'setup', param: { tab: 'backup' }, money: 2000, text: age == null ? 'No backup made on this computer yet — download one (Import & setup › Backup).' : `Last backup was ${age} days ago — download a fresh one.` });
+  }
   // GST due dates from GST Saathi's rule book; filed returns drop off the list.
   const lm = new Date(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
   const key = monthKey(lm);

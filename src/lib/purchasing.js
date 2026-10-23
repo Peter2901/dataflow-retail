@@ -100,7 +100,7 @@ export async function reorderSuggestions(storeId, cfg) {
   const products = (await db.products.toArray()).filter(p => p.active !== false);
   const stock = await stockMap(storeId);
   const since = Date.now() - 30 * 86400000;
-  const sales = (await db.sales.where('storeId').equals(storeId).toArray()).filter(s => s.ts >= since && s.type === 'sale');
+  const sales = await db.sales.where('ts').above(since).filter(s => s.storeId === storeId && s.type === 'sale').toArray();
   const sold = {};
   sales.forEach(s => s.lines.forEach(l => (sold[l.productId] = (sold[l.productId] || 0) + l.qty)));
   const batches = (await db.batches.where('storeId').equals(storeId).toArray()).filter(b => b.status === 'active' && b.qty > 0);

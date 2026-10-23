@@ -66,6 +66,13 @@ and every 8 seconds sends its new rows to one shared `records` table and pulls t
 - Edits sync from any counter (e.g. a customer created on T1 earns points on T2 → T1 sees the new points).
 - Known limit (test version): if two counters change the same customer or product within the same few seconds,
   the last change wins.
+- Built for big stores: only changed rows are read (an `updatedAt` index on every synced table), rows are sent a page
+  at a time, and each received page is saved in one step. A stock-move clash that stopped the sync once two counters
+  both billed is fixed (Oct 2026).
+- **Many shops on one Supabase project (for reselling):** give each shop a **shop key** (Settings › Cloud sync ›
+  Shop key). Rows are saved with that key and row-level security shows each shop only its own rows (run the latest
+  setup SQL once). Every device of a shop needs the same key; the phone setup code carries it. A shop with its own
+  Supabase project needs no key. Treat the key like a password.
 - Code: `src/lib/sync.js`.
 
 ## Purchase bills: Smart Scan, checks and barcodes
@@ -123,6 +130,34 @@ has AI on. Model/company switch with the `AI_PROVIDER` / `AI_MODEL` secrets; the
 | Smart search ("chini", "ଚିନି", typos) | `src/lib/search.js` | never |
 | WhatsApp texts in English / Hindi / Odia | `src/lib/messages.js` | never |
 
+## Backups
+
+Import & setup › **Backup & restore**. The backup streams table by table into a small gzip file (`.dfrbak`), so it
+works with lakhs of bills; it can be locked with a password (AES-GCM). Restore checks the whole file first and changes
+nothing if it is damaged, cut short or the password is wrong; this device's own settings (counter code, cloud keys)
+are kept. Cloud and AI keys are never written into a backup. The Windows app saves one every day in
+Documents › DataFlow Retail Backups and keeps the last 14; other devices get a reminder after 3 days.
+
+## Android signing for selling
+
+The phone app is signed with a **private release key** when these four GitHub repository secrets exist
+(Settings › Secrets and variables › Actions): `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them the build still uses the public test key and says so.
+Make the key once on your own PC (Java's `keytool`):
+
+```
+keytool -genkeypair -v -keystore dataflow-release.jks -alias dataflow -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 dataflow-release.jks > keystore.txt     (Windows: certutil -encode dataflow-release.jks keystore.txt)
+```
+
+Paste the contents of `keystore.txt` as `ANDROID_KEYSTORE_BASE64`. Keep the `.jks` file and passwords safe and
+offline — without them you can never update the app. Phones with the old test-key app must uninstall it once.
+
+## Tested with huge data
+
+The app was tested (tools/stress) against a year of a busy 4-counter store: 25,000 products, 30,000 customers, 2,50,000 bills
+(about 10 lakh stock moves), 6,000 purchase bills. See the October 2026 notes in the commit history for the timings.
+
 ## Not built yet (next phase)
 
 - Sending WhatsApp messages automatically (today each message opens WhatsApp ready to send; the WhatsApp Business API would send in bulk).
@@ -160,6 +195,26 @@ kept in (Kg here). Everything inside the app stays in that one unit, so GST, sto
 Money & team › **GST Saathi** walks through the month in five steps: due dates (monthly or quarterly/QRMP,
 state-wise 22nd/24th), checks before filing, the GSTR-1 file (JSON in the offline-tool format, plus Excel tables),
 the GSTR-2B match (with IMS guidance) and the GSTR-3B summary including ITC given back on write-offs.
+
+Added in October 2026:
+
+- **GST health:** turnover last year (AATO) and this year, worked out from the bills (or typed by the owner), and
+  what it means: 4 or 6-digit HSN, e-invoice above ₹5 crore, GSTR-9 compulsory above ₹2 crore (9C above ₹5 crore),
+  QRMP allowed up to ₹5 crore, composition limit.
+- **Late fee and interest** on overdue returns: ₹50/day (₹20 nil), capped by turnover (₹2,000 / ₹5,000 / ₹10,000;
+  nil ₹500) and 18% a year on late cash tax — all from the rule book.
+- **GSTR-3B set-off by law** (section 49A / Rule 88A): IGST credit first; CGST never pays SGST and the reverse.
+  Unused credit is carried to next month (saved when 3B is marked filed; the owner can correct it from the portal).
+- **Rule 37 (180 days):** supplier bills still unpaid 180 days after the bill date — the credit goes back in 4(B)(2);
+  once paid, it is taken again in 4(A)(5) and shown in 4(D)(1). Supplier payments are used for this.
+- **30 November deadline** (section 16(4)): last year's credit not yet seen in 2B is flagged before the last date.
+- **IMS action list:** Accept / Pending / Check for every 2B row, and a list of suppliers to call (Excel).
+- **After filing:** if bills for a filed month arrive later (a counter synced late), it asks for GSTR-1A before 3B.
+- **Composition:** CMP-08 each quarter (1% of taxable sales, exempt goods left out) and GSTR-4 once a year; bills
+  become “Bill of supply” with no GST.
+- **Year summary** (for GSTR-9 / GSTR-4) and a **CA pack**: one Excel with registers, every GSTR-1 table, 3B with
+  set-off and the 180-day list.
+- Bills of every store and counter under the GSTIN are included, read by date (fast with lakhs of bills).
 
 - It prepares and checks; the person or their CA files on the portal. AI is never used here, and it never sets a GST rate.
 - Always look at the portal's preview after uploading the JSON. If the portal changes its format, only `gstr1Json()`

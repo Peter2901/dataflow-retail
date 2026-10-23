@@ -25,14 +25,23 @@ create trigger records_seq_trg before insert or update on records for each row e
 create index if not exists records_pull_seq on records (store_id, seq);
 create index if not exists records_sales_ts on records (store_id, ((data->>'ts')::bigint)) where table_name = 'sales';
 
--- 3. Access for the app's publishable key.
+-- 3. Access for the app's publishable key, one shop at a time.
+-- Each shop's devices send their shop key in the x-shop-key header; a row belongs to the shop
+-- whose key was used to save it, and a shop can only read or change its own rows.
+-- A store that has its own Supabase project needs no shop key (its rows have shop = '').
+create or replace function req_shop() returns text language sql stable set search_path = public as $$
+  select coalesce(nullif(current_setting('request.headers', true), '')::json->>'x-shop-key', '')
+$$;
+alter table records add column if not exists shop text not null default '';
+alter table records alter column shop set default req_shop();
+create index if not exists records_shop_pull on records (shop, store_id, seq);
 alter table records enable row level security;
 drop policy if exists "app read" on records;
 drop policy if exists "app insert" on records;
 drop policy if exists "app update" on records;
-create policy "app read" on records for select using (true);
-create policy "app insert" on records for insert with check (true);
-create policy "app update" on records for update using (true) with check (true);
+create policy "app read" on records for select using (shop = req_shop());
+create policy "app insert" on records for insert with check (shop = req_shop());
+create policy "app update" on records for update using (shop = req_shop()) with check (shop = req_shop());
 
 -- 4. Owner phone app: today's numbers, worked out in the database (a few KB per refresh).
 create or replace function owner_today(p_store text, p_from bigint, p_now bigint, p_tz text default 'Asia/Kolkata')

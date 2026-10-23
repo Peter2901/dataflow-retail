@@ -10,3 +10,7 @@ android
 package-lock.json
 public/ocr
 dist-mobile
+
+# Private Android signing key — only ever comes from GitHub secrets
+android-signing/release.keystore
+*.jks

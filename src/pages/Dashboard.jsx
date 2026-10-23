@@ -13,7 +13,8 @@ import { counterStatus } from '../lib/sync.js';
 
 export async function dashboardData(storeId, cfg) {
   const today0 = dayStart();
-  const sales = (await db.sales.where('storeId').equals(storeId).toArray());
+  // Last 14 days only (ts index) — the trend chart needs no more.
+  const sales = await db.sales.where('ts').above(dayStart(addDays(new Date(), -14))).filter(s => s.storeId === storeId).toArray();
   const sign = s => (s.type === 'return' ? -1 : 1);
   const todays = sales.filter(s => s.ts >= today0);
   const yday = sales.filter(s => s.ts >= today0 - 86400000 && s.ts < today0);

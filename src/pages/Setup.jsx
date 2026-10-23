@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
-import { db } from '../db.js';
-import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Card, Stat, Badge, Tabs } from '../ui/kit.jsx';
+import { db, setSetting } from '../db.js';
+import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Card, Stat, Badge, Tabs, Input } from '../ui/kit.jsx';
 import { readSheet, mapProducts, checkProducts, templateFile } from '../lib/excel.js';
-import { addBatch } from '../lib/stock.js';
 import { post, partyAccount } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
 import { inr, r2, sum, uid, todayISO, download, validEAN } from '../lib/util.js';
 import { readScaleWeight, serialSupported } from '../lib/hardware.js';
 
 export default function Setup() {
-  const [tab, setTab] = useState('products');
+  const { param } = useApp();
+  const [tab, setTab] = useState(param?.tab || 'products');
   return (
     <div className="stack">
       <PageHead title="Import & setup" sub="Bring in your item list and balances, check them, and connect the counter hardware" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'products', label: '1. Product list' }, { value: 'balances', label: '2. Customer balances' }, { value: 'hardware', label: '3. Counter hardware' }, { value: 'backup', label: 'Backup & sync' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: 'products', label: '1. Product list' }, { value: 'balances', label: '2. Customer balances' }, { value: 'hardware', label: '3. Counter hardware' }, { value: 'backup', label: 'Backup & restore' }]} />
       {tab === 'products' && <ImportProducts />}
       {tab === 'balances' && <ImportBalances />}
       {tab === 'hardware' && <Hardware />}
@@ -37,19 +37,30 @@ function ImportProducts() {
     const existing = await db.products.toArray();
     setRes(checkProducts(mapped, existing)); setCols(columns); setFile(f.name);
   };
+  // Saves in big batches inside one transaction: fast for 20,000+ products, and all-or-nothing.
   const importGood = async () => {
     setBusy(true);
     const good = res.rows.filter(r => !r.errors.length);
     let value = 0;
+    const today = todayISO(), now = Date.now();
+    const prods = [], bats = [], moves = [];
     for (const r of good) {
-      const id = r.id || 'SKU' + uid('').slice(-7).toUpperCase();
-      await db.products.put({ id, barcode: r.barcode, name: r.name, ...(r.localName ? { localName: r.localName } : {}), category: r.category, subCategory: r.subCategory, brand: r.brand, uom: r.uom, packSize: r.packSize, hsn: r.hsn, gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack, ...(r.units ? { units: r.units } : {}), ...(r.prices ? { prices: r.prices } : {}), ...(r.wholesale ? { wholesale: r.wholesale } : {}), rack: r.rack, reorderMin: r.reorderMin, reorderMax: r.reorderMax, vendorId: r.vendorId, plu: r.plu, loose: r.loose, batchTracked: true, active: true });
+      const id = r.id || 'SKU' + uid('').slice(-7).toUpperCase() + prods.length.toString(36).toUpperCase();
+      prods.push({ id, barcode: r.barcode, name: r.name, ...(r.localName ? { localName: r.localName } : {}), category: r.category, subCategory: r.subCategory, brand: r.brand, uom: r.uom, packSize: r.packSize, hsn: r.hsn, gst: r.gst, mrp: r.mrp || r.price, price: r.price, cost: r.cost, casePack: r.casePack, ...(r.units ? { units: r.units } : {}), ...(r.prices ? { prices: r.prices } : {}), ...(r.wholesale ? { wholesale: r.wholesale } : {}), rack: r.rack, reorderMin: r.reorderMin, reorderMax: r.reorderMax, vendorId: r.vendorId, plu: r.plu, loose: r.loose, batchTracked: true, active: true });
       if (r.openingStock > 0) {
-        const bid = await addBatch({ productId: id, storeId, batchNo: r.batchNo || 'OPENING', expiry: r.expiry, qty: r.openingStock, cost: r.cost, ref: 'IMPORT' });
-        if (r.expiry && r.expiry < todayISO()) await db.batches.update(bid, { status: 'quarantine' });
+        const bid = uid('b_');
+        bats.push({ id: bid, productId: id, storeId, batchNo: r.batchNo || 'OPENING', mfg: null, expiry: r.expiry || null, qty: r.openingStock, cost: Number(r.cost) || 0, mrp: r.mrp || null, status: r.expiry && r.expiry < today ? 'quarantine' : 'active', receivedAt: now });
+        moves.push({ ts: now, productId: id, batchId: bid, storeId, qty: r.openingStock, type: 'purchase', ref: 'IMPORT', note: '' });
         value += r.openingStock * r.cost;
       }
     }
+    try {
+      await db.transaction('rw', db.products, db.batches, db.stockMoves, async () => {
+        for (let i = 0; i < prods.length; i += 2000) await db.products.bulkPut(prods.slice(i, i + 2000));
+        for (let i = 0; i < bats.length; i += 2000) await db.batches.bulkAdd(bats.slice(i, i + 2000));
+        for (let i = 0; i < moves.length; i += 2000) await db.stockMoves.bulkAdd(moves.slice(i, i + 2000));
+      });
+    } catch (e) { toast('Nothing was loaded: ' + e.message, 'bad'); setBusy(false); return; }
     if (value) await post({ ref: 'IMPORT', type: 'opening', narration: `Opening stock from ${file}`, lines: [{ acc: 'inventory', dr: r2(value) }, { acc: 'capital', cr: r2(value) }] });
     await audit('import', { file, products: good.length, value: r2(value) }, user);
     toast(`${good.length} products loaded with ${inr(value, 0)} of opening stock.`);
@@ -146,30 +157,58 @@ function Backup() {
   const { settings } = useApp();
   const toast = useToast();
   const confirm = useConfirm();
-  const pending = useLive(() => db.outbox.where('synced').equals(0).count(), [], 0);
+  const [pw, setPw] = useState('');
+  const [rpw, setRpw] = useState('');
+  const [busy, setBusy] = useState('');
+  const [file, setFile] = useState(null);
   const backup = async () => {
-    const out = {};
-    for (const t of db.tables) out[t.name] = await t.toArray();
-    download(`dataflow-retail-backup-${todayISO()}.json`, JSON.stringify({ app: 'dataflow-retail', at: Date.now(), data: out }), 'application/json');
+    setBusy('Making backup…');
+    try {
+      const { makeBackup } = await import('../lib/backup.js');
+      const b = await makeBackup({ password: pw, storeName: settings.storeName, onProgress: n => setBusy(`Making backup… ${n.toLocaleString('en-IN')} records`) });
+      download(b.name, b.blob, 'application/octet-stream');
+      await setSetting('backupAt', Date.now());
+      toast(`Backup ready: ${b.rows.toLocaleString('en-IN')} records${pw ? ', locked with your password' : ''}.`);
+    } catch (e) { toast('Backup failed: ' + e.message, 'bad'); }
+    setBusy('');
   };
-  const restore = async e => {
-    const f = e.target.files?.[0]; if (!f) return;
-    const j = JSON.parse(await f.text());
-    if (j.app !== 'dataflow-retail') return toast('That is not a DataFlow Retail backup.', 'bad');
-    if (!(await confirm('Replace everything on this computer with the backup?', 'Restore'))) return;
-    for (const t of db.tables) { await t.clear(); if (j.data[t.name]?.length) await t.bulkAdd(j.data[t.name]); }
-    toast('Backup restored.');
+  const restore = async () => {
+    if (!file) return;
+    setBusy('Checking the backup…');
+    try {
+      const { checkBackup, restoreBackup } = await import('../lib/backup.js');
+      const c = await checkBackup(file, rpw);
+      const when = c.header.at ? new Date(c.header.at).toLocaleString('en-IN') : 'unknown date';
+      setBusy('');
+      if (!(await confirm(`Backup from ${when}${c.header.store ? ` (${c.header.store})` : ''}: ${c.rows.toLocaleString('en-IN')} records — ${c.counts.sales || 0} bills, ${c.counts.products || 0} products, ${c.counts.customers || 0} customers. Replace EVERYTHING on this device with it? This device’s own settings (counter code, cloud keys) are kept.`, 'Restore'))) return;
+      setBusy('Restoring…');
+      await restoreBackup(c, n => setBusy(`Restoring… ${n.toLocaleString('en-IN')} records`));
+      toast('Backup restored. Opening it…');
+      setTimeout(() => location.reload(), 800);
+    } catch (e) { toast(e.message, 'bad'); }
+    setBusy('');
   };
+  const last = settings.backupAt ? new Date(settings.backupAt).toLocaleString('en-IN') : 'never on this device';
   return (
     <div className="grid g2">
       <Card title="Backup">
-        <p className="small muted">Saves every bill, product, customer and entry in one file. Keep a copy off the counter PC each day (pen drive or Google Drive).</p>
-        <div className="row gap-s wrap" style={{ marginTop: 10 }}><Btn kind="primary" onClick={backup}>Download backup</Btn><label className="btn">Restore from file<input type="file" accept=".json" hidden onChange={restore} /></label></div>
+        <p className="small muted">Saves every bill, product, customer and entry in one small file. Keep a copy off the counter PC (pen drive or Google Drive). The Windows app also saves one by itself every day in Documents › DataFlow Retail Backups (last 14 kept). Cloud and AI keys are never in a backup.</p>
+        <p className="small">Last backup: <b>{last}</b></p>
+        <div className="row gap-s wrap" style={{ marginTop: 10, alignItems: 'flex-end' }}>
+          <Input label="Password to lock it (optional)" type="password" value={pw} onChange={e => setPw(e.target.value)} id="bk-pw" />
+          <Btn kind="primary" onClick={backup} disabled={!!busy}>Download backup</Btn>
+        </div>
+        {pw && <p className="small muted">Write the password down. Without it the backup cannot be opened — not even by us.</p>}
       </Card>
-      <Card title="Cloud sync">
-        <p className="small">{pending} changes are waiting to go to the cloud. Every bill is saved here first, so the counter never waits for the internet.</p>
-        <p className="small muted" style={{ marginTop: 8 }}>Head-office sync (all stores, all counters, live owner view) connects to a cloud database in the next phase. Until then, use backups to move data between computers. Store: {settings.storeName}.</p>
+      <Card title="Restore">
+        <p className="small muted">The whole file is checked first; nothing changes if it is damaged or the password is wrong.</p>
+        <div className="row gap-s wrap" style={{ marginTop: 10, alignItems: 'flex-end' }}>
+          <label className="btn">{file ? file.name.slice(0, 28) : 'Choose backup file'}<input type="file" accept=".dfrbak,.json,.gz" hidden onChange={e => setFile(e.target.files?.[0] || null)} /></label>
+          <Input label="Password (if locked)" type="password" value={rpw} onChange={e => setRpw(e.target.value)} id="bk-rpw" />
+          <Btn kind="danger" onClick={restore} disabled={!file || !!busy}>Restore</Btn>
+        </div>
       </Card>
+      {busy && <div className="note span2">{busy}</div>}
     </div>
   );
 }

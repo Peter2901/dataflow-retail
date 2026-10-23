@@ -49,6 +49,9 @@ export default function POS() {
   const [hi, setHi] = useState(0);
   const [customer, setCustomer] = useState(null);
   const [priceMode, setPriceMode] = useState('retail');   // 'retail' | 'wholesale'
+  const [autoWh, setAutoWh] = useState(false);              // switched by a wholesale customer, not by hand
+  // Composition dealers cannot charge GST: bills become a 'Bill of supply' with no tax.
+  const composition = !!settings.gstFiling?.composition;
   const [due, setDue] = useState(0);
   const [b2b, setB2b] = useState('');
   const [points, setPoints] = useState(0);
@@ -85,6 +88,9 @@ export default function POS() {
 
   const setCust = async c => {
     setCustomer(c);
+    // A customer marked "wholesale" (by the owner or a manager) switches the bill to wholesale prices; removing them switches back.
+    if (c?.wholesale) { if (priceMode !== 'wholesale') { setPriceMode('wholesale'); setAutoWh(true); audit('wholesale_bill', { customer: c.name, auto: true }, user); } }
+    else if (autoWh) { setPriceMode('retail'); setAutoWh(false); }
     setPoints(0);
     setDue(c ? await customerDue(c.id) : 0);
     if (c?.gstin) setB2b(c.gstin);
@@ -98,9 +104,10 @@ export default function POS() {
       const unitPrice = c.price ?? priceFor(p, ui.unitIdx, priceMode);
       const a = allocs[c.key] || { alloc: [], blocked: [] };
       const markdownDisc = r2(sum(a.alloc, x => (x.qty * unitPrice * x.markdown) / 100));
-      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: p.gst, qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...ui };
+      return { key: c.key, productId: p.id, name: p.name, ...(p.localName ? { localName: p.localName } : {}), hsn: p.hsn, gst: composition ? 0 : p.gst, ...(composition ? { rateWas: p.gst } : {}), qty: Number(c.qty) || 0, unitPrice, mrp: p.mrp, cost: p.cost, uom: p.uom, category: p.category, markdownDisc, alloc: a, override: c.price != null, ...ui };
     }).filter(Boolean);
-    const o = applyOffers(lines, offers, { marginOverride: lines.some(l => l.override) });
+    const noOffers = priceMode === 'wholesale' && !settings.wholesaleOffers;
+    const o = applyOffers(lines, noOffers ? [] : offers, { marginOverride: lines.some(l => l.override) });
     const billLines = lines.map(l => ({
       ...l, lineDisc: r2(l.markdownDisc + (o.perLine[l.key]?.disc || 0)), batches: l.alloc.alloc,
       offerNote: [l.markdownDisc ? 'Near-expiry markdown' : '', o.perLine[l.key]?.note].filter(Boolean).join(' · '),
@@ -112,7 +119,7 @@ export default function POS() {
     const inter = !!(b2b && validGSTIN(b2b) && b2b.slice(0, 2) !== settings.stateCode);
     const bill = computeBill(billLines, bd, inter);
     return { lines, billLines, bill, maxPts, usePts, inter, blocked: lines.filter(l => !l.alloc.alloc.length && l.alloc.blocked.length) };
-  }, [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode]);
+  }, [cart, allocs, offers, pmap, customer, points, b2b, settings, priceMode, composition]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -193,7 +200,7 @@ export default function POS() {
       if (!mgr) return;
       audit('bill_cancel', { items: cart.length, value: view.bill.totals.payable, approvedBy: mgr.name }, user);
     }
-    setCart([]); setPriceMode('retail'); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
+    setCart([]); setPriceMode('retail'); setAutoWh(false); setCustomer(null); setB2b(''); setPoints(0); setDue(0); setOrderId(null);
     scanRef.current?.focus();
   };
 
@@ -208,7 +215,7 @@ export default function POS() {
     if (b2b && !validGSTIN(b2b)) { toast('That GSTIN is not valid. Fix it or clear it for a normal bill.', 'bad'); return; }
     const sale = await saveSale({
       bill: view.bill, payments, customer: customer ? await db.customers.get(customer.id) : null, user, shiftId: shift?.id, storeId,
-      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId, priceMode,
+      pointsUsed: view.usePts, b2b: b2b ? { gstin: b2b.toUpperCase(), inter: view.inter } : null, orderId, priceMode, composition,
     });
     if (orderId) await db.orders.update(orderId, { status: 'billed', saleId: sale.id, billNo: sale.no });
     const short = view.lines.filter(l => l.alloc.shortfall > 0);
@@ -592,7 +599,7 @@ function ReturnModal({ onClose, onDone }) {
     e?.preventDefault();
     const s = await db.sales.where('no').equals(no.trim().toUpperCase()).first() || await db.sales.where('no').equals(no.trim()).first();
     if (!s || s.type !== 'sale') { setErr('No sale with that bill number.'); return; }
-    const earlier = await db.sales.filter(x => x.type === 'return' && x.origNo === s.no).toArray();
+    const earlier = (await db.sales.where('origNo').equals(s.no).toArray()).filter(x => x.type === 'return');
     const returned = {};
     earlier.forEach(r => r.lines.forEach(l => (returned[l.productId] = (returned[l.productId] || 0) + l.qty)));
     setSale({ ...s, returned }); setErr('');

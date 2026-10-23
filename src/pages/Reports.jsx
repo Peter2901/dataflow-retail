@@ -27,20 +27,22 @@ export default function Reports() {
   const [tab, setTab] = useState('sales');
   const now = new Date();
   const [p, setP] = useState({ from: localISO(new Date(now.getFullYear(), now.getMonth(), 1)), to: todayISO() });
-  const sales = useLive(() => db.sales.where('storeId').equals(storeId).toArray(), [storeId], []);
+  // Only the chosen dates are read (ts index) — a big store has lakhs of bills.
+  const from = new Date(p.from).setHours(0, 0, 0, 0), to = new Date(p.to).setHours(23, 59, 59, 999);
+  const sales = useLive(() => db.sales.where('ts').between(from, to, true, true).filter(s => s.storeId === storeId).toArray(), [storeId, from, to], []);
   const inP = useMemo(() => sales.filter(s => inRange(s.ts, p)), [sales, p]);
   return (
     <div className="stack">
       <PageHead title="Reports" sub="Every report exports to Excel. GST tables follow the GSTR-1 and GSTR-3B layout." />
       <Tabs value={tab} onChange={setTab} tabs={[{ value: 'sales', label: 'Sales' }, { value: 'items', label: 'Items & profit' }, { value: 'gstr1', label: 'GSTR-1' }, { value: 'gstr3b', label: 'GSTR-3B' }, { value: 'stock', label: 'Stock' }, { value: 'shifts', label: 'Cashier shifts' }, { value: 'builder', label: 'Build your own' }]} />
-      {!['stock', 'builder'].includes(tab) && <Period value={p} onChange={setP} />}
+      {tab !== 'stock' && <Period value={p} onChange={setP} />}
       {tab === 'sales' && <SalesRep sales={inP} />}
       {tab === 'items' && <ItemsRep sales={inP} />}
       {tab === 'gstr1' && <Gstr1 sales={inP} p={p} />}
       {tab === 'gstr3b' && <Gstr3b sales={inP} p={p} />}
-      {tab === 'stock' && <StockRep storeId={storeId} sales={sales} />}
+      {tab === 'stock' && <StockRep storeId={storeId} />}
       {tab === 'shifts' && <Shifts p={p} />}
-      {tab === 'builder' && <Builder sales={sales} />}
+      {tab === 'builder' && <Builder sales={inP} />}
     </div>
   );
 }
@@ -139,15 +141,20 @@ function Gstr3b({ sales, p }) {
   );
 }
 
-function StockRep({ storeId, sales }) {
+function StockRep({ storeId }) {
   const products = useLive(() => db.products.toArray(), [], []);
   const batches = useLive(() => db.batches.where('storeId').equals(storeId).toArray(), [storeId], []);
   const stock = useLive(() => stockMap(storeId), [storeId], {});
-  const since = Date.now() - 30 * 864e5;
+  const since = useMemo(() => Date.now() - 30 * 864e5, []);
+  const recent = useLive(() => db.sales.where('ts').above(since).filter(s => s.storeId === storeId).toArray(), [storeId, since], []);
   const sold = {};
-  sales.filter(s => s.ts >= since && s.type === 'sale').forEach(s => s.lines.forEach(l => (sold[l.productId] = (sold[l.productId] || 0) + l.qty)));
+  recent.filter(s => s.type === 'sale').forEach(s => s.lines.forEach(l => (sold[l.productId] = (sold[l.productId] || 0) + l.qty)));
+  const pname = Object.fromEntries(products.map(p => [p.id, p.name]));
+  // Stock value per product, grouped once (not one pass over all batches per product).
+  const valueOf = {};
+  for (const b of batches) if (b.status === 'active' && b.qty > 0) valueOf[b.productId] = (valueOf[b.productId] || 0) + b.qty * b.cost;
   const rows = products.map(p => {
-    const on = stock[p.id] || 0, val = r2(sum(batches.filter(b => b.productId === p.id && b.status === 'active' && b.qty > 0), b => b.qty * b.cost));
+    const on = stock[p.id] || 0, val = r2(valueOf[p.id] || 0);
     const daily = (sold[p.id] || 0) / 30;
     return { id: p.id, name: p.name, category: p.category, onHand: on, value: val, sold30: sold[p.id] || 0, daysCover: daily ? Math.round(on / daily) : null };
   });
@@ -155,7 +162,7 @@ function StockRep({ storeId, sales }) {
   const dead = rows.filter(r => r.onHand > 0 && !r.sold30);
   const over = rows.filter(r => r.daysCover != null && r.daysCover > 45);
   const totalVal = r2(sum(rows, r => r.value));
-  const cogs30 = r2(sum(sales.filter(s => s.ts >= since), s => sg(s) * sum(s.lines, l => l.qty * (l.cost || 0))));
+  const cogs30 = r2(sum(recent, s => sg(s) * sum(s.lines, l => l.qty * (l.cost || 0))));
   const turns = totalVal ? r2((cogs30 * 12) / totalVal) : 0;
   return (
     <div className="stack">
@@ -163,7 +170,7 @@ function StockRep({ storeId, sales }) {
       <Card title="Value by category" actions={<Btn size="sm" onClick={() => exportRows('stock-valuation.xlsx', 'Stock', rows)}>Excel (all items)</Btn>}><Table rows={cats} cols={[{ label: 'Category', key: 'id' }, { label: 'Items', num: true, key: 'items' }, { label: 'Value at cost', num: true, render: c => inr(c.value, 0) }]} /></Card>
       <Card title="Dead stock (nothing sold in 30 days)"><Table rows={dead} empty="Every item with stock sold in the last 30 days." cols={[{ label: 'Item', key: 'name' }, { label: 'On hand', num: true, render: r => num(r.onHand, 2) }, { label: 'Value', num: true, render: r => inr(r.value, 0) }]} /></Card>
       <Card title="Too much stock (over 45 days of cover)"><Table rows={over} empty="No item has more than 45 days of stock." cols={[{ label: 'Item', key: 'name' }, { label: 'Days of cover', num: true, key: 'daysCover' }, { label: 'Value', num: true, render: r => inr(r.value, 0) }]} /></Card>
-      <Card title="Expiry by batch"><Table rows={batches.filter(b => b.status === 'active' && b.qty > 0 && b.expiry && daysLeft(b.expiry) <= 60).map(b => ({ ...b, name: products.find(p => p.id === b.productId)?.name, dl: daysLeft(b.expiry) })).sort((a, b) => a.dl - b.dl)} cols={[{ label: 'Item', key: 'name' }, { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', key: 'expiry' }, { label: 'Days', num: true, render: b => <span style={{ color: b.dl < 0 ? 'var(--bad)' : undefined }}>{b.dl}</span> }, { label: 'Qty', num: true, render: b => num(b.qty, 2) }]} /></Card>
+      <Card title="Expiry by batch"><Table rows={batches.filter(b => b.status === 'active' && b.qty > 0 && b.expiry && daysLeft(b.expiry) <= 60).map(b => ({ ...b, name: pname[b.productId], dl: daysLeft(b.expiry) })).sort((a, b) => a.dl - b.dl)} cols={[{ label: 'Item', key: 'name' }, { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', key: 'expiry' }, { label: 'Days', num: true, render: b => <span style={{ color: b.dl < 0 ? 'var(--bad)' : undefined }}>{b.dl}</span> }, { label: 'Qty', num: true, render: b => num(b.qty, 2) }]} /></Card>
     </div>
   );
 }

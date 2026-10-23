@@ -6,6 +6,7 @@ import { savePurchase, lastBillLines } from '../lib/purchasing.js';
 import { readSheet } from '../lib/excel.js';
 import { GST_SLABS } from '../lib/billing.js';
 import { unitList, plain } from '../lib/units.js';
+import ProductPicker from '../ui/ProductPicker.jsx';
 import { loadPurchaseContext, checkBill, lineCalc, billCalc } from '../lib/purchaseChecks.js';
 import { scanBill, smartScanConfig, supplierByGstin } from '../lib/billreader.js';
 import { isStoreBarcode } from '../lib/barcode.js';
@@ -238,7 +239,7 @@ export default function PurchaseBill({ draft, onClose }) {
                 <tr className={rowClass(l)}>
                   <td style={{ minWidth: 220 }}>
                     <div className="row gap-s">
-                      <select className="input" value={l.productId} onChange={e => pick(l.key, e.target.value)} aria-label="Product"><option value="">{l.text ? 'Pick product…' : 'Choose product'}</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                      <ProductPicker products={products} value={l.productId} onChange={id => pick(l.key, id)} placeholder={l.text ? 'Pick product…' : 'Type product or barcode'} />
                       {!l.productId && l.text && <Btn size="sm" onClick={() => setQuick({ key: l.key, name: l.text, mrp: l.mrp, gst: l.gst, cost: c.landing ? c.landing.toFixed(2) : '' })} title="Add as a new product">＋New</Btn>}
                     </div>
                     {unitList(pm[l.productId]).length > 0 && <select className="input" style={{ marginTop: 4 }} value={buyUnit(l)?.i ?? 0} onChange={e => chooseUnit(l, Number(e.target.value))} aria-label="Buying unit">{unitList(pm[l.productId]).map(u => <option key={u.i} value={u.i}>Buying in {u.name}{u.base ? ' (stock unit)' : ''}</option>)}</select>}

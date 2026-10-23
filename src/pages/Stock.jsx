@@ -6,6 +6,7 @@ import { moveStock, expiryZone, daysLeft, DEFAULT_EXPIRY, stockValue } from '../
 import { post } from '../lib/accounts.js';
 import { audit } from '../lib/sales.js';
 import { unitList, breakdown, plain } from '../lib/units.js';
+import ProductPicker from '../ui/ProductPicker.jsx';
 
 const REASONS = { damaged: 'Damaged / broken', expired: 'Expired', theft: 'Missing / theft', count: 'Count correction', sample: 'Free sample / own use' };
 
@@ -28,30 +29,32 @@ export default function Stock() {
   const cfg = settings.expiry || DEFAULT_EXPIRY;
   const products = useLive(() => db.products.toArray(), [], []);
   const batches = useLive(() => db.batches.where('storeId').equals(storeId).toArray(), [storeId], []);
+  // Batches grouped by product once, so no screen loops over every batch for every product.
+  const byProd = useMemo(() => { const m = new Map(); for (const b of batches) { if (!m.has(b.productId)) m.set(b.productId, []); m.get(b.productId).push(b); } return m; }, [batches]);
   const value = useLive(() => stockValue(storeId), [storeId], 0);
   const pmap = Object.fromEntries(products.map(p => [p.id, p]));
   return (
     <div className="stack">
       <PageHead title="Stock & batches" sub={`Stock value at cost ${inr(value, 0)} · every unit is tracked by batch and expiry`} />
       <Tabs value={tab} onChange={setTab} tabs={[{ value: 'items', label: 'By item' }, { value: 'moves', label: 'Movements' }, { value: 'adjust', label: 'Write-off / adjust' }, { value: 'count', label: 'Physical count' }, { value: 'transfer', label: 'Transfer between stores' }]} />
-      {tab === 'items' && <ByItem products={products} batches={batches} cfg={cfg} />}
+      {tab === 'items' && <ByItem products={products} batches={batches} cfg={cfg} byProd={byProd} />}
       {tab === 'moves' && <Moves pmap={pmap} storeId={storeId} />}
-      {tab === 'adjust' && <Adjust products={products} batches={batches} pmap={pmap} settings={settings} user={user} />}
-      {tab === 'count' && <Count products={products} batches={batches} user={user} />}
+      {tab === 'adjust' && <Adjust products={products} batches={batches} pmap={pmap} settings={settings} user={user} byProd={byProd} />}
+      {tab === 'count' && <Count products={products} batches={batches} user={user} byProd={byProd} />}
       {tab === 'transfer' && <Transfer products={products} batches={batches} pmap={pmap} storeId={storeId} user={user} />}
     </div>
   );
 }
 
-function ByItem({ products, batches, cfg }) {
+function ByItem({ products, batches, cfg, byProd }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null);
   const rows = useMemo(() => products.filter(p => !q || p.name.toLowerCase().includes(q.toLowerCase())).map(p => {
-    const bs = batches.filter(b => b.productId === p.id && b.status === 'active');
+    const bs = (byProd.get(p.id) || []).filter(b => b.status === 'active');
     const qty = Math.round(sum(bs, b => b.qty) * 1000) / 1000;
     const next = bs.filter(b => b.qty > 0 && b.expiry).sort((a, b) => a.expiry.localeCompare(b.expiry))[0];
     return { ...p, qty, value: r2(sum(bs.filter(b => b.qty > 0), b => b.qty * b.cost)), batchCount: bs.filter(b => b.qty > 0).length, next };
-  }).sort((a, b) => a.name.localeCompare(b.name)), [products, batches, q]);
+  }).sort((a, b) => a.name.localeCompare(b.name)), [products, byProd, q]);
   return (
     <div className="stack">
       <SearchBox value={q} onChange={setQ} placeholder="Search item" />
@@ -64,7 +67,7 @@ function ByItem({ products, batches, cfg }) {
       ]} /></div>
       {open && (
         <Modal wide title={open.name} onClose={() => setOpen(null)}>
-          <Table rows={batches.filter(b => b.productId === open.id).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)))} cols={[
+          <Table rows={(byProd.get(open.id) || []).slice().sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)))} cols={[
             { label: 'Batch', key: 'batchNo' }, { label: 'Expiry', render: b => b.expiry || '—' },
             { label: 'Status', render: b => b.status !== 'active' ? <Badge tone="bad">{b.status}</Badge> : <Badge tone={expiryZone(daysLeft(b.expiry), cfg).tone}>{expiryZone(daysLeft(b.expiry), cfg).label}</Badge> },
             { label: 'Qty', num: true, render: b => unitList(open).length ? <>{breakdown(open, b.qty)}<div className="small muted">{plain(b.qty)} {open.uom}</div></> : num(b.qty, 2) }, { label: 'Cost', num: true, render: b => inr(b.cost) }, { label: 'Received', render: b => fmtDT(b.receivedAt) },
@@ -76,7 +79,8 @@ function ByItem({ products, batches, cfg }) {
 }
 
 function Moves({ pmap, storeId }) {
-  const moves = useLive(async () => (await db.stockMoves.where('storeId').equals(storeId).reverse().sortBy('ts')).slice(0, 300), [storeId], null);
+  // Newest 300 through the ts index (a big store has lakhs of stock moves).
+  const moves = useLive(() => db.stockMoves.orderBy('ts').reverse().filter(m => m.storeId === storeId).limit(300).toArray(), [storeId], null);
   return <div className="card"><Table rows={moves} cols={[
     { label: 'When', render: m => fmtDT(m.ts) }, { label: 'Item', render: m => pmap[m.productId]?.name || m.productId },
     { label: 'Type', render: m => <Badge tone={m.qty > 0 ? 'ok' : 'neutral'}>{m.type}</Badge> }, { label: 'Ref', key: 'ref' },
@@ -84,14 +88,14 @@ function Moves({ pmap, storeId }) {
   ]} /></div>;
 }
 
-function Adjust({ products, batches, pmap, settings, user }) {
+function Adjust({ products, batches, pmap, settings, user, byProd }) {
   const toast = useToast();
   const approve = useApprove();
   const [pid, setPid] = useState('');
   const [bid, setBid] = useState('');
   const [qty, setQty] = useState('');
   const [reason, setReason] = useState('damaged');
-  const bs = batches.filter(b => b.productId === pid && b.status === 'active');
+  const bs = (byProd.get(pid) || []).filter(b => b.status === 'active');
   const batch = bs.find(b => b.id === bid);
   const value = batch ? r2(Number(qty) * batch.cost) : 0;
   const submit = async e => {
@@ -110,7 +114,7 @@ function Adjust({ products, batches, pmap, settings, user }) {
   return (
     <Card title="Remove damaged, expired or missing stock">
       <form className="grid g3" onSubmit={submit}>
-        <Select label="Item" value={pid} onChange={e => { setPid(e.target.value); setBid(''); }} options={[{ value: '', label: 'Choose item' }, ...products.map(p => ({ value: p.id, label: p.name }))]} id="adj-p" />
+        <ProductPicker label="Item" products={products} value={pid} onChange={id => { setPid(id); setBid(''); }} id="adj-p" />
         <Select label="Batch" value={bid} onChange={e => setBid(e.target.value)} options={[{ value: '', label: 'Choose batch' }, ...bs.map(b => ({ value: b.id, label: `${b.batchNo} · exp ${b.expiry || '—'} · ${num(b.qty, 2)} on hand` }))]} id="adj-b" />
         <Select label="Reason" value={reason} onChange={e => setReason(e.target.value)} options={Object.entries(REASONS).map(([v, l]) => ({ value: v, label: l }))} id="adj-r" />
         <Input label="Quantity to remove (negative to add back)" type="number" step="0.001" value={qty} onChange={e => setQty(e.target.value)} id="adj-q" />
@@ -122,18 +126,18 @@ function Adjust({ products, batches, pmap, settings, user }) {
   );
 }
 
-function Count({ products, batches, user }) {
+function Count({ products, batches, user, byProd }) {
   const toast = useToast();
   const [counts, setCounts] = useState({});
   const [cat, setCat] = useState('');
   const cats = [...new Set(products.map(p => p.category))].sort();
   const list = products.filter(p => !cat || p.category === cat);
-  const sys = id => r2(sum(batches.filter(b => b.productId === id && b.status === 'active'), b => b.qty));
+  const sys = id => r2(sum((byProd.get(id) || []).filter(b => b.status === 'active'), b => b.qty));
   const diffs = list.filter(p => counts[p.id] !== undefined && counts[p.id] !== '' && Number(counts[p.id]) !== sys(p.id));
   const apply = async () => {
     for (const p of diffs) {
       const d = r2(Number(counts[p.id]) - sys(p.id));
-      const bs = batches.filter(b => b.productId === p.id && b.status === 'active').sort((a, b) => String(b.expiry).localeCompare(String(a.expiry)));
+      const bs = (byProd.get(p.id) || []).filter(b => b.status === 'active').sort((a, b) => String(b.expiry).localeCompare(String(a.expiry)));
       const b = bs[0];
       if (!b) continue;
       await writeOff({ batch: b, product: p, qty: -d, reason: 'count', user });

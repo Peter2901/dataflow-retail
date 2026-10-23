@@ -25,15 +25,30 @@ jobs:
       - name: App icon and splash
         run: npx @capacitor/assets generate --android --iconBackgroundColor '#0F1B2D' --iconBackgroundColorDark '#0F1B2D' --splashBackgroundColor '#0F1B2D' --splashBackgroundColorDark '#0F1B2D'
       - run: npx cap sync android
-      - name: Use the fixed signing key (so updates install over the old app)
+      - name: Private release key from GitHub secrets (if set)
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android-signing/release.keystore; echo "release key ready"; else echo "no release key secret — test key will be used"; fi
+      - name: Signing setup (private key if present, else the test key)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: node scripts/android-signing.cjs
       - name: Build APK
-        run: cd android && ./gradlew assembleDebug --no-daemon
-      - run: cp android/app/build/outputs/apk/debug/app-debug.apk DataFlow-Owner.apk
-      - name: Check the APK is signed with the fixed key
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          cd android
+          if [ "$APK_KIND" = "release" ]; then ./gradlew assembleRelease --no-daemon; cp app/build/outputs/apk/release/app-release.apk ../DataFlow-Owner.apk; else ./gradlew assembleDebug --no-daemon; cp app/build/outputs/apk/debug/app-debug.apk ../DataFlow-Owner.apk; fi
+      - name: Check which key signed the APK
         run: |
           keytool -printcert -jarfile DataFlow-Owner.apk | tee cert.txt
-          grep -q "DataFlow Owner (test signing)" cert.txt
+          if [ "$APK_KIND" = "release" ]; then ! grep -q "DataFlow Owner (test signing)" cert.txt; else grep -q "DataFlow Owner (test signing)" cert.txt; fi
+          rm -f android-signing/release.keystore
       - uses: actions/upload-artifact@v4
         with: { name: DataFlow-Owner-apk, path: DataFlow-Owner.apk }
       - name: Remove the previous APK from the release

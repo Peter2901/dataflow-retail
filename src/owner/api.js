@@ -20,10 +20,10 @@ export function parseCode(text) {
   try { o = JSON.parse(decodeURIComponent(escape(atob(b64 + '==='.slice((b64.length + 3) % 4))))); }
   catch { throw new Error('This setup code is damaged. Copy it again from the counter.'); }
   if (!o.u || !o.k) throw new Error('This setup code is incomplete. Make a new one on the counter.');
-  return { url: o.u.replace(/\/+$/, ''), key: o.k, store: o.s || 'S1', name: o.n || 'My store' };
+  return { url: o.u.replace(/\/+$/, ''), key: o.k, store: o.s || 'S1', name: o.n || 'My store', shop: o.h || '' };
 }
 
-const headers = c => ({ apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json' });
+const headers = c => ({ apikey: c.key, Authorization: 'Bearer ' + c.key, 'Content-Type': 'application/json', ...(c.shop ? { 'x-shop-key': c.shop } : {}) });
 
 async function rpc(c, fn, body) {
   const res = await fetch(`${c.url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: headers(c), body: JSON.stringify(body) });

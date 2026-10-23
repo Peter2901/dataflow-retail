@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Btn, Modal, Input, Select, Badge, Card, Table } from '../ui/kit.jsx';
+import ProductPicker from '../ui/ProductPicker.jsx';
 import { inr, uid, waLink, fmtDT, sum, r2 } from '../lib/util.js';
 import { stockMap, reservedMap } from '../lib/stock.js';
 
@@ -99,7 +100,7 @@ function NewOrder({ products, stock, reserved, onClose }) {
         </div>
         {mode === 'delivery' && <Input label="Delivery address" value={address} onChange={e => setAddress(e.target.value)} id="o-addr" />}
         <div className="row gap-s wrap" style={{ alignItems: 'flex-end' }}>
-          <Select className="grow" label="Item" value={pid} onChange={e => setPid(e.target.value)} options={[{ value: '', label: 'Choose item' }, ...products.map(p => ({ value: p.id, label: `${p.name} · ₹${p.price} · ${Math.max(0, avail(p.id))} free` }))]} id="o-item" />
+          <ProductPicker className="grow" label="Item" products={products} value={pid} onChange={setPid} extra={p => `₹${p.price} · ${Math.max(0, avail(p.id))} free`} id="o-item" />
           <Input label="Qty" type="number" value={qty} onChange={e => setQty(e.target.value)} id="o-qty" />
           <Btn onClick={add}>Add</Btn>
         </div>

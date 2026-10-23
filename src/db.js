@@ -50,6 +50,37 @@ db.version(3).stores({
   itemAliases: 'id, supplierId, productId, updatedAt',
 });
 
+// v4: every synced table gets an `updatedAt` index, so the sync reads only what changed instead of
+// scanning whole tables every few seconds (a big store has lakhs of bills and stock moves).
+db.version(4).stores({
+  users: 'id, role, updatedAt',
+  shifts: 'id, userId, storeId, openedAt, closedAt, updatedAt',
+  audit: 'id, ts, action, updatedAt',
+  debitNotes: 'id, no, supplierId, date, updatedAt',
+  purchaseOrders: 'id, no, supplierId, date, status, updatedAt',
+  followups: 'id, customerId, due, done, updatedAt',
+  employees: 'id, name, updatedAt',
+  attendance: 'id, empId, date, updatedAt',
+  payroll: 'id, empId, month, updatedAt',
+  stores: 'id, updatedAt',
+  accounts: 'id, group, name, updatedAt',
+  bankLines: 'id, date, matched, updatedAt',
+});
+
+// v5: chainSeq — the last bill of this counter's chain in one step; origNo — the returns of a bill;
+// parties — which customer / supplier accounts a journal entry touches, so dues are read without the whole book.
+db.version(5).stores({
+  sales: 'id, no, ts, storeId, customerId, shiftId, type, status, updatedAt, chainSeq, origNo',
+  journal: 'id, ts, ref, type, updatedAt, *parties',
+}).upgrade(tx => tx.table('journal').toCollection().modify(e => { e.parties = partiesOf(e.lines); }));
+
+// Customer / supplier accounts in a journal entry's lines (kept on each entry as an index).
+export function partiesOf(lines) {
+  const out = [];
+  for (const l of lines || []) if (/^(cust|supp):/.test(l.acc) && !out.includes(l.acc)) out.push(l.acc);
+  return out;
+}
+
 // Tables that sync to the cloud. Append-only logs and shared master data only;
 // local-only things (settings, users, shifts, held, bank lines) stay on the device.
 // Since v1.1 the phone app is a full copy of the store (everything except billing), so staff,
@@ -58,7 +89,7 @@ export const SYNC_TABLES = ['products', 'batches', 'stockMoves', 'customers', 's
   'users', 'shifts', 'audit', 'debitNotes', 'purchaseOrders', 'followups', 'employees', 'attendance', 'payroll', 'stores', 'accounts', 'bankLines'];
 
 // Settings that belong to one device and are never shared with the others.
-export const DEVICE_KEYS = new Set(['syncUrl', 'syncKey', 'syncEnabled', 'terminal', 'deviceMode', 'theme', 'sampleData', 'lang', 'currentStore']);
+export const DEVICE_KEYS = new Set(['syncUrl', 'syncKey', 'syncEnabled', 'terminal', 'deviceMode', 'theme', 'sampleData', 'lang', 'currentStore', 'shopKey', 'backupAt', 'backupAuto']);
 export const isSharedSetting = k => !DEVICE_KEYS.has(k) && !/^(seq_|chain_|_)/.test(k);
 
 // When a person saves a shared setting here (setSetting), the sync sends the store settings to the
@@ -76,11 +107,15 @@ export const clearSettingsDirty = at => { try { if (settingsDirty() <= at) local
 for (const t of SYNC_TABLES) {
   db[t].hook('creating', (primKey, obj) => {
     if (!obj.updatedAt) obj.updatedAt = Date.now();
+    if (t === 'journal') obj.parties = partiesOf(obj.lines);
     if (t === 'stockMoves' && !obj.sid) obj.sid = COUNTER + ':' + uid();
   });
   db[t].hook('updating', (mods) => {
-    if ('_seq' in mods || '_mv' in mods) return;          // the sync itself is writing
-    return { updatedAt: Date.now(), _oc: undefined };      // a change made on this counter
+    const extra = t === 'journal' && 'lines' in mods ? { parties: partiesOf(mods.lines) } : null;
+    const keys = Object.keys(mods);
+    if (keys.length && keys.every(k => k === 'parties')) return;     // index upkeep only (the v4 upgrade), not a real change
+    if ('_seq' in mods || '_mv' in mods) return extra || undefined;   // the sync itself is writing
+    return { updatedAt: Date.now(), _oc: undefined, ...(extra || {}) };   // a change made on this counter
   });
 }
 

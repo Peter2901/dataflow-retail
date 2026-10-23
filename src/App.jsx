@@ -303,13 +303,17 @@ export default function App() {
   );
 }
 
-// Windows app: one automatic backup a day into Documents\\DataFlow Retail Backups.
+// Windows app: one automatic backup a day into Documents\\DataFlow Retail Backups (the app keeps the last 14).
 async function autoBackup() {
   if (!window.dfrDesktop) return;
   const day = localISO(new Date());
   try { if (localStorage.getItem('dfr_backup') === day) return; } catch { /* ignore */ }
-  const out = {};
-  for (const t of db.tables) out[t.name] = await t.toArray();
-  await window.dfrDesktop.saveBackup(`backup-${day}.json`, JSON.stringify({ app: 'dataflow-retail', at: Date.now(), data: out }));
-  try { localStorage.setItem('dfr_backup', day); } catch { /* ignore */ }
+  try {
+    const { makeBackup } = await import('./lib/backup.js');
+    const s = await getSettings();
+    const b = await makeBackup({ storeName: s.storeName });
+    await window.dfrDesktop.saveBackup(`backup-${day}.dfrbak`, new Uint8Array(await b.blob.arrayBuffer()));
+    await db.settings.put({ key: 'backupAt', value: Date.now() });
+    try { localStorage.setItem('dfr_backup', day); } catch { /* ignore */ }
+  } catch (e) { console.error('auto backup', e); }
 }

@@ -3,7 +3,7 @@ import { db, setSetting, resetAll } from '../db.js';
 import { useApp, useLive, useToast, useConfirm, PageHead, Table, Btn, Modal, Input, Select, Card, Tabs, Badge } from '../ui/kit.jsx';
 import { hashPin, validGSTIN, uid, fyOf } from '../lib/util.js';
 import { audit } from '../lib/sales.js';
-import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL, prepareForPhones } from '../lib/sync.js';
+import { testConnection, pushEverything, syncOnce, getStatus, onSyncStatus, SETUP_SQL, ownerSetupCode, OWNER_WEB_URL, OWNER_APK_URL, prepareForPhones, newShopKey } from '../lib/sync.js';
 import QRCode from 'qrcode';
 import { waLink, num } from '../lib/util.js';
 import { scanUsageThisMonth, readWithAI, smartScanConfig } from '../lib/billreader.js';
@@ -144,6 +144,7 @@ function SyncSettings() {
         </div>
         {result && <p className={`note ${result.ok ? '' : ''}`} style={{ marginTop: 12 }}>{result.ok ? '✅ ' : '⚠️ '}{result.msg}</p>}
       </Card>
+      <ShopKey isOwner={user.role === 'owner'} />
       <Card title="Status">
         <div className="grid g3">
           <Stat label="Sync" value={settings.syncEnabled ? (st.online ? 'On' : 'On (offline)') : 'Off'} />
@@ -159,6 +160,34 @@ function SyncSettings() {
         <Btn onClick={copySql} style={{ marginTop: 8 }}>Copy SQL</Btn>
       </Card>
     </div>
+  );
+}
+
+// Shop key: needed only when several shops share ONE Supabase project (e.g. a reseller hosting many stores).
+// Every device of the shop needs the same key; the setup code for phones carries it.
+function ShopKey({ isOwner }) {
+  const { settings } = useApp();
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [k, setK] = useState('');
+  const [show, setShow] = useState(false);
+  const cur = settings.shopKey || '';
+  const apply = async key => {
+    if (!(await confirm(cur ? 'Change the shop key on this device? Its data is sent to the cloud again under the new key.' : 'Use a shop key on this device? Its data is sent to the cloud again under this key.', 'Use key'))) return;
+    await setSetting('shopKey', key);
+    if (settings.syncEnabled) await pushEverything();
+    setK(''); toast('Shop key saved.');
+  };
+  return (
+    <Card title="Shop key (many shops on one cloud)">
+      <p className="small muted" style={{ marginTop: 0 }}>Only if several shops share one Supabase project. Each shop then sees only its own data. Every counter and phone of this shop needs the <b>same</b> key — keep it secret like a password. A shop with its own Supabase project does not need one.</p>
+      <p className="small">This device: {cur ? <><b className="mono">{show ? cur : cur.slice(0, 9) + '…'}</b> <button className="link" onClick={() => setShow(x => !x)}>{show ? 'hide' : 'show'}</button></> : <b>no shop key</b>}</p>
+      {isOwner && <div className="row gap-s wrap" style={{ alignItems: 'flex-end' }}>
+        {!cur && <Btn onClick={() => apply(newShopKey())}>Create a shop key</Btn>}
+        <Input label="Or paste the shop key from the main counter" value={k} onChange={e => setK(e.target.value.trim())} id="shop-key" />
+        <Btn kind="primary" disabled={!/^shop_[a-z0-9]{20,}$/.test(k)} onClick={() => apply(k)}>Use this key</Btn>
+      </div>}
+    </Card>
   );
 }
 
@@ -226,7 +255,19 @@ function LoyaltySettings() {
         <Input label="Write-offs above this need a manager (₹)" type="number" value={f.writeOffLimit} onChange={on('writeOffLimit')} id="l-wo" />
       </div>
       <div style={{ marginTop: 12 }}><Btn kind="primary" onClick={save}>Save</Btn></div>
+      <WholesaleSetting />
     </Card>
+  );
+}
+
+// Wholesale bills already have a low price, so shop offers (bill-busters, combos) are off for them unless the owner turns them on.
+function WholesaleSetting() {
+  const { settings } = useApp();
+  return (
+    <div style={{ marginTop: 16 }}>
+      <Select label="Offers on wholesale bills" value={settings.wholesaleOffers ? 'on' : 'off'} onChange={e => setSetting('wholesaleOffers', e.target.value === 'on')}
+        options={[{ value: 'off', label: 'Off — wholesale price only (recommended)' }, { value: 'on', label: 'On — offers apply to wholesale bills too' }]} id="l-whoffers" />
+    </div>
   );
 }
 

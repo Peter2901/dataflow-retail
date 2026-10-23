@@ -39,14 +39,18 @@ function trigrams(s) {
 }
 const dice = (a, b) => { if (!a.size || !b.size) return 0; let n = 0; a.forEach(x => b.has(x) && n++); return (2 * n) / (a.size + b.size); };
 
-export function similarity(a, b) {
-  const ta = new Set(tokens(a)), tb = new Set(tokens(b));
-  const tok = dice(ta, tb);
-  const tri = dice(trigrams(norm(a)), trigrams(norm(b)));
-  let s = 0.45 * tok + 0.55 * tri;
-  const sa = sizeOf(a), sb = sizeOf(b);
-  if (sa && sb) s = sa === sb ? Math.min(1, s + 0.12) : s * 0.55;   // 100 g vs 200 g are different items
+// The parts of a name that similarity() compares — worked out once and reused (product search keeps them per product).
+export function simProfile(x) {
+  const n = norm(x);
+  return { tok: new Set(tokens(x)), tri: trigrams(n), size: sizeOf(x), words: n.split(' ').filter(w => w.length >= 3) };
+}
+export function simScore(pa, pb) {
+  let s = 0.45 * dice(pa.tok, pb.tok) + 0.55 * dice(pa.tri, pb.tri);
+  if (pa.size && pb.size) s = pa.size === pb.size ? Math.min(1, s + 0.12) : s * 0.55;   // 100 g vs 200 g are different items
   return s;
+}
+export function similarity(a, b) {
+  return simScore(simProfile(a), simProfile(b));
 }
 
 export const aliasId = (supplierId, text) => `${supplierId || 'any'}|${norm(text)}`;

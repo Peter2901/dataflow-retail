@@ -16,7 +16,7 @@ export function Connect() {
     try {
       const c = parseCode(text);
       setBusy('Checking the code…');
-      const res = await fetch(`${c.url}/rest/v1/records?select=id&limit=1`, { headers: { apikey: c.key, Authorization: 'Bearer ' + c.key } });
+      const res = await fetch(`${c.url}/rest/v1/records?select=id&limit=1`, { headers: { apikey: c.key, Authorization: 'Bearer ' + c.key, ...(c.shop ? { 'x-shop-key': c.shop } : {}) } });
       if (!res.ok) throw new Error(res.status === 401 ? 'The cloud did not accept this code. Make a new one on the counter.' : `The cloud replied ${res.status}.`);
       setBusy('Connecting…');
       await connectDevice(c, { terminal: 'P' + Math.random().toString(36).slice(2, 5).toUpperCase(), deviceMode: 'mobile' });

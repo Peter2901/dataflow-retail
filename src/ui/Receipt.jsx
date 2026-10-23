@@ -40,7 +40,8 @@ export default function Receipt({ sale, settings: s }) {
       {s.phone && <div className="c">Ph: {s.phone}</div>}
       {s.gstin ? <div className="c">GSTIN: {s.gstin}</div> : <div className="c">GSTIN: [not set]</div>}
       {s.fssai && <div className="c">FSSAI: {s.fssai}</div>}
-      <div className="c"><b>{sale.type === 'return' ? 'CREDIT NOTE' : sale.b2b ? 'TAX INVOICE' : 'BILL OF SUPPLY / TAX INVOICE'}</b></div>
+      <div className="c"><b>{sale.type === 'return' ? 'CREDIT NOTE' : sale.composition ? 'BILL OF SUPPLY' : sale.b2b ? 'TAX INVOICE' : 'BILL OF SUPPLY / TAX INVOICE'}</b></div>
+      {sale.composition && <div className="c small">Composition taxable person, not eligible to collect tax on supplies</div>}
       {sale.priceMode === 'wholesale' && <div className="c small">Wholesale rate</div>}
       <hr />
       <div>No: {sale.no}{sale.origNo ? ` (against ${sale.origNo})` : ''}</div>

@@ -1,6 +1,6 @@
 // Product search that understands Hindi / Odia / Hinglish names and typing mistakes.
 // Plain code and a built-in word list: instant and offline at the counter.
-import { norm, similarity } from './match.js';
+import { simProfile, simScore } from './match.js';
 
 // English word → other names people type or say (Hinglish, Hindi, Odia).
 const WORDS = {
@@ -80,6 +80,20 @@ export function expandQuery(q) {
  * Smart search over products: exact codes, plain contains, other-language names, then typing mistakes.
  * Returns products ranked best first.
  */
+// Lower-case search text per product, built once per product list (the list object stays the same between key presses).
+const hayCache = new WeakMap(), profCache = new WeakMap();
+// Name profiles for the typing-mistake pass, also built once per product list.
+function profiles(products) {
+  let h = profCache.get(products);
+  if (!h) { h = new Map(); profCache.set(products, h); }
+  return p => { let x = h.get(p); if (!x) { x = simProfile(p.name); h.set(p, x); } return x; };
+}
+function haystacks(products) {
+  let h = hayCache.get(products);
+  if (!h) { h = products.map(p => `${p.name} ${p.brand || ''} ${p.category || ''} ${p.localName || ''}`.toLowerCase()); hayCache.set(products, h); }
+  return h;
+}
+
 export function smartSearch(q, products, limit = 8) {
   const s = String(q || '').trim();
   if (s.length < 2) return [];
@@ -87,26 +101,40 @@ export function smartSearch(q, products, limit = 8) {
   const exact = products.filter(p => p.barcode === s || p.id.toLowerCase() === lower || (p.plu && p.plu === s));
   if (exact.length) return exact.slice(0, limit);
   const forms = expandQuery(s);
-  const scored = [];
-  for (const p of products) {
+  const formWords = forms.map(f => f.split(/\s+/).filter(Boolean));
+  const H = haystacks(products);
+  const scored = [], rest = [];
+  // Pass 1 — plain "contains" (cheap).
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
     if (p.active === false) continue;
-    const hay = `${p.name} ${p.brand || ''} ${p.category || ''} ${p.localName || ''}`.toLowerCase();
+    const hay = H[i];
     let score = 0;
-    for (const f of forms) {
-      const words = f.split(/\s+/).filter(Boolean);
+    for (let k = 0; k < forms.length; k++) {
+      const f = forms[k], words = formWords[k];
       if (hay.includes(f)) score = Math.max(score, 3);
       else if (words.every(w => hay.includes(w))) score = Math.max(score, 2.5);
       else if (words.some(w => w.length >= 3 && hay.includes(w))) score = Math.max(score, 1.2);
     }
-    if (score < 2 && s.length >= 3) {
-      // typing mistakes: "parlee" → Parle, "corriander" → coriander
-      const words = norm(p.name).split(' ').filter(w => w.length >= 3);
-      const typo = forms.some(f => f.split(/\s+/).filter(Boolean).every(q => q.length < 4 || words.some(w => close(q, w))));
-      if (typo) score = Math.max(score, 1.8);
-      else { const best = Math.max(...forms.map(f => similarity(f, p.name))); if (best >= 0.6) score = Math.max(score, best * 2); }
-    }
-    if (score > 0) scored.push({ p, score: score + (p.name.toLowerCase().startsWith(lower) ? 0.5 : 0) });
+    if (score >= 2) scored.push({ p, score: score + (p.name.toLowerCase().startsWith(lower) ? 0.5 : 0) });
+    else rest.push({ p, score });
   }
+  // Pass 2 — typing mistakes, only when pass 1 did not already find enough (a typo match scores at most 2,
+  // below every "contains" match, so skipping it then gives the same list — just much faster on big stores).
+  if (scored.length < limit) {
+    const prof = profiles(products);
+    const qProf = forms.map(simProfile);
+    for (const { p, score: s0 } of rest) {
+      let score = s0;
+      if (s.length >= 3) {
+        const pp = prof(p), words = pp.words;
+        const typo = formWords.some(fw => fw.every(q => q.length < 4 || words.some(w => close(q, w))));
+        if (typo) score = Math.max(score, 1.8);
+        else { const best = Math.max(...qProf.map(f => simScore(f, pp))); if (best >= 0.6) score = Math.max(score, best * 2); }
+      }
+      if (score > 0) scored.push({ p, score: score + (p.name.toLowerCase().startsWith(lower) ? 0.5 : 0) });
+    }
+  } else rest.forEach(({ p, score }) => { if (score > 0) scored.push({ p, score }); });
   return scored.sort((a, b) => b.score - a.score).slice(0, limit).map(x => x.p);
 }
 
@@ -116,8 +144,17 @@ function close(a, b) {
   if (a === b) return true;
   const max = a.length >= 6 ? 2 : 1;
   if (Math.abs(a.length - b.length) > max) return false;
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-  return d[a.length][b.length] <= max;
+  // Two rows only, and stop as soon as no path can stay within `max` (same answer, far less work).
+  let prev = new Array(b.length + 1), cur = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    cur[0] = i; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return false;
+    [prev, cur] = [cur, prev];
+  }
+  return prev[b.length] <= max;
 }
