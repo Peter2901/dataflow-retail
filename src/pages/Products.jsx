@@ -31,13 +31,15 @@ export default function Products() {
   const stock = useLive(() => stockMap(storeId), [storeId], {});
   const suppliers = useLive(() => db.suppliers.toArray(), [], []);
   const cats = useMemo(() => ['All', ...[...new Set(products.map(p => p.category))].sort()], [products]);
+  // The category list is kept between key presses, so the search's word cache is reused (25,000 items).
+  const inCat = useMemo(() => products.filter(p => cat === 'All' || p.category === cat), [products, cat]);
+  const sorted = useMemo(() => [...inCat].sort((a, b) => a.name.localeCompare(b.name)), [inCat]);
   const rows = useMemo(() => {
     const s = q.trim();
-    const inCat = products.filter(p => cat === 'All' || p.category === cat);
-    if (!s) return inCat.sort((a, b) => a.name.localeCompare(b.name));
+    if (!s) return sorted;
     const plain = inCat.filter(p => p.barcode?.includes(s) || p.id.toLowerCase().includes(s.toLowerCase()));
-    return [...new Set([...plain, ...smartSearch(s, inCat.map(p => ({ ...p, active: true })), 200).map(x => inCat.find(p => p.id === x.id))])];
-  }, [products, q, cat]);
+    return [...new Set([...plain, ...smartSearch(s, inCat, 200, { all: true })])];
+  }, [inCat, sorted, q]);
 
   const save = async p => {
     const errs = productErrors(p, products);

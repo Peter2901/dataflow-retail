@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { db } from '../db.js';
 import { useApp, useLive, useToast, useApprove, PageHead, Table, Btn, Input, Select, Tabs, Card, Badge, SearchBox, Modal, useOnce } from '../ui/kit.jsx';
-import { inr, num, r2, fmtDT, uid, sum } from '../lib/util.js';
-import { moveStock, expiryZone, daysLeft, DEFAULT_EXPIRY, stockValue } from '../lib/stock.js';
+import { inr, num, r2, fmtDT, sum } from '../lib/util.js';
+import { expiryZone, daysLeft, DEFAULT_EXPIRY, stockValue } from '../lib/stock.js';
 import { audit } from '../lib/sales.js';
 import { writeOff, transferStock, REASONS } from '../lib/stockOps.js';
 import { unitList, breakdown, plain } from '../lib/units.js';

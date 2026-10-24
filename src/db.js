@@ -115,6 +115,12 @@ for (const t of SYNC_TABLES) {
   });
 }
 
+// Save something without waiting, outside any read-only (live) query. Screens that re-run a query whenever
+// the data changes are only allowed to read; a saved total they work out is written a moment later.
+export function writeSoon(fn) {
+  setTimeout(() => { Dexie.ignoreTransaction(() => Promise.resolve().then(fn)).catch(e => console.warn('writeSoon', e)); }, 0);
+}
+
 export async function ensureSeeded() {
   const n = await db.settings.count();
   if (n === 0) await seedDemo(db);

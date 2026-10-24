@@ -35,6 +35,7 @@ $$;
 alter table records add column if not exists shop text not null default '';
 alter table records alter column shop set default req_shop();
 create index if not exists records_shop_pull on records (shop, store_id, seq);
+create index if not exists records_shop_seq on records (shop, seq);          -- devices download every branch of their shop
 alter table records enable row level security;
 drop policy if exists "app read" on records;
 drop policy if exists "app insert" on records;
@@ -119,12 +120,13 @@ mv as (
   select data->>'batchId' bid, sum(coalesce((data->>'qty')::numeric, 0)) q
   from records where table_name = 'stockMoves' and store_id = p_store and data->>'batchId' is not null group by 1
 ),
+-- Joined on the app's own ids (data->>'id'): with a shop key the cloud row id carries a shop tag.
 bt as (
-  select r.id, r.data d, coalesce(mv.q, 0) q
-  from records r left join mv on mv.bid = r.id
+  select r.data->>'id' id, r.data d, coalesce(mv.q, 0) q
+  from records r left join mv on mv.bid = r.data->>'id'
   where r.table_name = 'batches' and r.store_id = p_store and coalesce(r.data->>'status', 'active') = 'active'
 ),
-pr as (select id, data d from records where table_name = 'products'),
+pr as (select data->>'id' id, data d from records where table_name = 'products'),
 oh as (select d->>'productId' pid, sum(q) q from bt group by 1),
 low as (
   select pr.d->>'name' as name, pr.d->>'rack' rack, round(coalesce(oh.q, 0), 3) q, nullif(pr.d->>'reorderMin', '')::numeric rmin

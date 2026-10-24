@@ -199,6 +199,7 @@ async function applyRow(c, row) {
   if (own && !c.restoring) return;
   if (row.table_name === 'storeSettings') {
     if (own) return;
+    if (row.store_id && row.store_id !== c.store) return;     // another branch's name and address stay there
     for (const [k, v] of Object.entries(d.values || {})) if (isSharedSetting(k)) await db.settings.put({ key: k, value: v });
     return;
   }
@@ -234,7 +235,7 @@ async function applyRow(c, row) {
   if (row.table_name === 'customers') {
     // Points / spend / visits come from the bills on this device (see recalcCustomer), not from
     // whichever counter saved the customer last.
-    const keep = existing ? { points: existing.points, yearSpend: existing.yearSpend, lifeSpend: existing.lifeSpend, visits: existing.visits, lastVisit: existing.lastVisit } : {};
+    const keep = existing ? { points: existing.points, ptsRaw: existing.ptsRaw, yearSpend: existing.yearSpend, lifeSpend: existing.lifeSpend, visits: existing.visits, lastVisit: existing.lastVisit } : {};
     await table.put({ ...d, ...keep, ...(existing?.base && !d.base ? { base: existing.base } : {}), _oc: row.counter, _seq: row.seq });
     // Add up the bills again only when the starting point changed (new customer, or base edited).
     if (d.base && JSON.stringify(d.base) !== JSON.stringify(existing?.base)) await recalcCustomer(d.id);
@@ -258,7 +259,9 @@ async function pull(c) {
   let cur = await metaGet('pullCur');
   let hi = Math.max(prevHi, cur), pages = 0, more = false, n = 0;
   while (pages < 10) {
-    const url = `${c.url}/rest/v1/records?store_id=eq.${encodeURIComponent(c.store)}&table_name=neq.counter_status&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,counter,data,seq`;
+    // Every branch of the shop (one shop key = one business): products, customers, books and GST are shared,
+    // and stock sent to another branch arrives there. Each screen still shows only this branch's stock and bills.
+    const url = `${c.url}/rest/v1/records?table_name=neq.counter_status&seq=gt.${cur}&order=seq.asc&limit=1000&select=table_name,id,store_id,counter,data,seq`;
     const res = await call(url, { headers: hdr(c) });
     if (!res.ok) throw new Error('pull ' + res.status);
     const rows = await res.json();
@@ -303,7 +306,7 @@ async function countPending() {
 export async function syncOnce() {
   const c = await cfg();
   status.enabled = c.enabled; status.online = navigator.onLine;
-  if (!c.enabled || !c.url || !c.key || !navigator.onLine || running) { emit(); return; }
+  if (paused || !c.enabled || !c.url || !c.key || !navigator.onLine || running) { emit(); return; }
   running = true; status.busy = true; emit();
   try {
     setSyncCounter(c.counter);
@@ -345,6 +348,14 @@ export function startSync() {
 }
 
 export function stopSync() { if (timer) { clearInterval(timer); timer = null; } }
+
+// While a backup is being restored the sync must not send or fetch half-restored data.
+let paused = false;
+export async function pauseSync() {
+  paused = true; stopSync();
+  for (let i = 0; running && i < 600; i++) await new Promise(r => setTimeout(r, 100));   // let a round in progress finish
+}
+export function resumeSync() { paused = false; startSync(); }
 
 // SQL the user pastes once into Supabase (SQL editor). Kept in supabase/setup.sql.
 export const SETUP_SQL = SETUP_SQL_TEXT;

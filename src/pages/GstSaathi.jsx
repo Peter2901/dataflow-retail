@@ -24,14 +24,18 @@ const ZERO = { igst: 0, cgst: 0, sgst: 0 };
 // Bills of a date range, all counters and stores of this GSTIN, read through the date index (fast on big data).
 const salesIn = (from, to) => db.sales.where('ts').between(from, to, true, true).toArray();
 
-// Month totals for turnover limits. Closed months are kept for a day so big stores do not re-read every bill.
+// Month totals for turnover limits. A closed month is added up once and kept; it is added up again only
+// if its number of bills changed (a counter that was offline sent old bills). Counting is instant.
 async function monthTotals(key) {
   const cur = monthKey(new Date());
-  const cached = key < cur ? (await db.syncMeta.get('gstsum:' + key))?.v : null;
-  if (cached && Date.now() - cached.at < 7 * 864e5) return cached.sum;   // closed months rarely change; kept a week
   const { from, to } = monthRange(key);
-  const s = monthSummary(await salesIn(from, to));
-  if (key < cur) await db.syncMeta.put({ key: 'gstsum:' + key, v: { at: Date.now(), sum: s } });
+  if (key < cur) {
+    const cached = (await db.syncMeta.get('gstsum:' + key))?.v;
+    if (cached?.n != null && cached.n === await db.sales.where('ts').between(from, to, true, true).count()) return cached.sum;
+  }
+  const list = await salesIn(from, to);
+  const s = monthSummary(list);
+  if (key < cur) await db.syncMeta.put({ key: 'gstsum:' + key, v: { at: Date.now(), n: list.length, sum: s } });
   return s;
 }
 const fyKeys = fy => Array.from({ length: 12 }, (_, i) => monthKey(new Date(fy, 3 + i, 1)));
@@ -57,7 +61,9 @@ export default function GstSaathi() {
 
   // Turnover: last full financial year (AATO) and this year so far, from the app's own bills (owner can type it if the app is new).
   const [turn, setTurn] = useState(null);
+  const periodReady = inP !== null;
   useEffect(() => {
+    if (!periodReady) return undefined;                  // the return period first; the year's turnover after it
     let live = true;
     (async () => {
       const fy = fyStart(new Date());
@@ -67,7 +73,7 @@ export default function GstSaathi() {
       if (live) setTurn({ lastFy: r2(sum(last, m => m.taxable)), ytd: r2(sum(ytd, m => m.taxable)), lastMonths: last.filter(m => m.bills).length });
     })().catch(() => live && setTurn({ lastFy: 0, ytd: 0, lastMonths: 0 }));
     return () => { live = false; };
-  }, []);
+  }, [periodReady]);
   const tset = settings.gstTurnover || {};
   const aato = Number(tset.lastFy) || turn?.lastFy || 0;
   const maxEver = Math.max(aato, Number(tset.maxEver) || 0);

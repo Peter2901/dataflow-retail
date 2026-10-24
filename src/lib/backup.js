@@ -6,6 +6,7 @@ import { db, DEVICE_KEYS } from '../db.js';
 
 const MAGIC = 'DFRBENC1';                 // encrypted backup
 const CHUNK = 2000;
+const RESTORE_CHUNK = 10000;
 const SECRET_SETTINGS = new Set(['syncKey', 'shopKey']);
 const enc = new TextEncoder();
 
@@ -144,6 +145,13 @@ export async function checkBackup(file, password = '') {
 
 /** Replace everything on this device with the backup (after checkBackup passed). This device's own settings are kept. */
 export async function restoreBackup(checked, onProgress) {
+  const { pauseSync, resumeSync } = await import('./sync.js');
+  await pauseSync();
+  try { return await restoreNow(checked, onProgress); }
+  catch (e) { resumeSync(); throw e; }
+}
+
+async function restoreNow(checked, onProgress) {
   const keepDevice = (await db.settings.toArray()).filter(r => DEVICE_KEYS.has(r.key));
   const known = new Set(db.tables.map(t => t.name));
   for (const t of db.tables) await t.clear();
@@ -154,15 +162,24 @@ export async function restoreBackup(checked, onProgress) {
       for (let i = 0; i < rows.length; i += CHUNK) { await db.table(name).bulkPut(rows.slice(i, i + CHUNK)); done += Math.min(CHUNK, rows.length - i); onProgress?.(done); }
     }
   } else {
+    // The tables were just emptied, so rows are added straight in (no "is it already there?" read per row)
+    // in big batches: far fewer disk writes and screen refreshes on a big store.
     let table = null, batch = [];
-    const flush = async () => { if (table && known.has(table) && batch.length) await db.table(table).bulkPut(batch); done += batch.length; batch = []; onProgress?.(done); };
+    const flush = async () => {
+      if (table && known.has(table) && batch.length) {
+        const t = db.table(table);
+        try { await t.bulkAdd(batch); }
+        catch (e) { if (e?.name === 'BulkError') await t.bulkPut(batch); else throw e; }   // an old backup with a repeated row
+      }
+      done += batch.length; batch = []; onProgress?.(done);
+    };
     let first = true;
     await eachLine(checked.blob, checked.kind, async o => {
       if (first) { first = false; return; }
       if (o.table && Object.keys(o).length === 1) { await flush(); table = o.table; return; }
       if (o.end) { await flush(); return; }
       batch.push(o);
-      if (batch.length >= CHUNK) await flush();
+      if (batch.length >= RESTORE_CHUNK) await flush();
     });
     await flush();
   }

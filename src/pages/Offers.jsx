@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Select, Badge, Card } from '../ui/kit.jsx';
 import ProductPicker from '../ui/ProductPicker.jsx';
 import { inr, uid } from '../lib/util.js';
-import { OFFER_TYPES } from '../lib/offers.js';
+import { OFFER_TYPES, offerErrors } from '../lib/offers.js';
 import { audit } from '../lib/sales.js';
 
 const describe = (o, pm) => ({
@@ -22,8 +22,11 @@ export default function Offers() {
   const pm = Object.fromEntries(products.map(p => [p.id, p]));
   const [edit, setEdit] = useState(null);
   const toggle = async o => { await db.offers.update(o.id, { active: !o.active }); audit('offer_toggle', { name: o.name, active: !o.active }, user); };
-  const save = async o => {
-    if (!o.name) { toast('Give the offer a name customers will see.', 'bad'); return; }
+  const save = async o0 => {
+    // Boxes shown with a starting value (Buy 2, Get 1, 100% off) count even if they were not touched.
+    const o = o0.type === 'bxgy' ? { ...o0, buy: Number(o0.buy || 2), get: Number(o0.get || 1), pct: Number(o0.pct ?? 100) } : o0;
+    const errs = offerErrors(o);
+    if (errs.length) { toast(errs.join(' '), 'bad'); return; }
     await db.offers.put({ ...o, id: o.id || uid('of_') });
     audit('offer_saved', { name: o.name }, user);
     toast('Offer saved. Every counter applies it from the next bill.'); setEdit(null);

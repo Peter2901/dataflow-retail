@@ -1186,3 +1186,82 @@ Offers on wholesale bills	थोक बिल पर ऑफ़र	ପାଇକ�
 Off — wholesale price only (recommended)	बंद — केवल थोक भाव (सुझाया गया)	ବନ୍ଦ — କେବଳ ପାଇକାରୀ ଦର (ପରାମର୍ଶିତ)
 On — offers apply to wholesale bills too	चालू — थोक बिल पर भी ऑफ़र	ଚାଲୁ — ପାଇକାରୀ ବିଲ୍‌ରେ ବି ଅଫର୍
 Must do	ज़रूर करें	ନିଶ୍ଚୟ କରନ୍ତୁ
+Your GST in clear steps. GST Saathi prepares and checks — you or your CA file on the GST portal.	आपका GST, आसान कदमों में। GST साथी तैयार करता है और जाँचता है — फाइल आप या आपके CA GST पोर्टल पर करते हैं।	ଆପଣଙ୍କ GST, ସହଜ ପାଦରେ। GST ସାଥୀ ପ୍ରସ୍ତୁତ କରେ ଓ ଯାଞ୍ଚ କରେ — ଆପଣ କିମ୍ବା ଆପଣଙ୍କ CA GST ପୋର୍ଟାଲରେ ଫାଇଲ କରନ୍ତି।
+3 · CMP-08 — composition tax for the quarter	3 · CMP-08 — तिमाही का कंपोज़िशन टैक्स	3 · CMP-08 — ତିନିମାସର କମ୍ପୋଜିସନ୍ ଟିକସ
+4 · GSTR-2B and IMS — input credit you can safely claim	4 · GSTR-2B और IMS — इनपुट क्रेडिट जो आप सुरक्षित ले सकते हैं	4 · GSTR-2B ଓ IMS — ଇନପୁଟ୍ କ୍ରେଡିଟ୍ ଯାହା ଆପଣ ନିରାପଦରେ ନେଇପାରିବେ
+Accept	स्वीकार	ଗ୍ରହଣ
+Reject	अस्वीकार	ପ୍ରତ୍ୟାଖ୍ୟାନ
+Pending	पेंडिंग	ପେଣ୍ଡିଂ
+Cash paid (3B)	नकद भुगतान (3B)	ନଗଦ ଦେୟ (3B)
+Credit (3B)	क्रेडिट (3B)	କ୍ରେଡିଟ୍ (3B)
+Credit to give back	वापस करने वाला क्रेडिट	ଫେରାଇବାକୁ ଥିବା କ୍ରେଡିଟ୍
+Exempt / nil (no tax)	छूट / शून्य (कोई टैक्स नहीं)	ଛାଡ଼ / ଶୂନ (କୌଣସି ଟିକସ ନାହିଁ)
+Financial year	वित्त वर्ष	ଆର୍ଥିକ ବର୍ଷ
+Tax to pay	देय टैक्स	ଦେବାକୁ ଥିବା ଟିକସ
+Taxable sales	टैक्स योग्य बिक्री	ଟିକସଯୋଗ୍ୟ ବିକ୍ରି
+Sales in the quarter	तिमाही की बिक्री	ତିନିମାସର ବିକ୍ରି
+HSN rows (B2B + B2C)	HSN पंक्तियाँ (B2B + B2C)	HSN ଧାଡ଼ି (B2B + B2C)
+Plus late fee / interest if late	देर होने पर लेट फीस / ब्याज अलग से	ବିଳମ୍ବ ହେଲେ ଲେଟ୍ ଫି / ସୁଧ ଅଲଗା
+This month is not over yet — the numbers are “so far”. File after the month ends.	यह महीना अभी खत्म नहीं हुआ — आँकड़े “अब तक” के हैं। महीना खत्म होने के बाद फाइल करें।	ଏହି ମାସ ଏପର୍ଯ୍ୟନ୍ତ ଶେଷ ହୋଇନାହିଁ — ସଂଖ୍ୟା “ଏପର୍ଯ୍ୟନ୍ତ”ର। ମାସ ଶେଷ ହେବା ପରେ ଫାଇଲ କରନ୍ତୁ।
+Turnover last FY (₹, if the app was not used all year)	पिछले वित्त वर्ष का टर्नओवर (₹, अगर ऐप पूरे साल नहीं चला)	ଗତ ଆର୍ଥିକ ବର୍ଷର ଟର୍ଣ୍ଣଓଭର (₹, ଯଦି ଆପ୍ ପୂରା ବର୍ଷ ଚାଲିନାହିଁ)
+Highest yearly turnover since 2017-18 (₹, for e-invoice)	2017-18 से अब तक का सबसे ज़्यादा सालाना टर्नओवर (₹, ई-इनवॉइस के लिए)	2017-18 ଠାରୁ ସବୁଠୁ ଅଧିକ ବାର୍ଷିକ ଟର୍ଣ୍ଣଓଭର (₹, ଇ-ଇନଭଏସ୍ ପାଇଁ)
+Month by month: sales, tax, credit and cash paid (from the 3B you marked filed). Your CA uses this for the annual return.	महीने दर महीने: बिक्री, टैक्स, क्रेडिट और नकद भुगतान (जिन 3B को आपने फाइल हुआ दर्ज किया)। आपके CA इसे सालाना रिटर्न में लेते हैं।	ମାସ ପରେ ମାସ: ବିକ୍ରି, ଟିକସ, କ୍ରେଡିଟ୍ ଓ ନଗଦ ଦେୟ (ଯେଉଁ 3B ଆପଣ ଫାଇଲ ହୋଇଛି ବୋଲି ଚିହ୍ନିତ କରିଛନ୍ତି)। ଆପଣଙ୍କ CA ଏହାକୁ ବାର୍ଷିକ ରିଟର୍ଣ୍ଣରେ ବ୍ୟବହାର କରନ୍ତି।
+Sales and purchase registers, every GSTR-1 table, GSTR-3B with set-off and the 180-day list — one Excel file to send your CA.	बिक्री और खरीद रजिस्टर, GSTR-1 की हर टेबल, सेट-ऑफ के साथ GSTR-3B और 180 दिन की सूची — CA को भेजने के लिए एक Excel फाइल।	ବିକ୍ରି ଓ କିଣା ରେଜିଷ୍ଟର, GSTR-1ର ପ୍ରତ୍ୟେକ ଟେବୁଲ୍, ସେଟ୍-ଅଫ୍ ସହ GSTR-3B ଓ 180 ଦିନର ତାଲିକା — CAଙ୍କୁ ପଠାଇବା ପାଇଁ ଗୋଟିଏ Excel ଫାଇଲ।
+Interest at 18% a year applies on credit used for these bills. Pay the supplier, then the credit is taken back automatically in the month you pay.	इन बिलों पर लिए गए क्रेडिट पर 18% सालाना ब्याज लगता है। सप्लायर को भुगतान करें, फिर जिस महीने भुगतान करेंगे उसी महीने क्रेडिट अपने आप दोबारा मिल जाएगा।	ଏହି ବିଲ୍‌ରେ ନିଆଯାଇଥିବା କ୍ରେଡିଟ୍ ଉପରେ ବର୍ଷକୁ 18% ସୁଧ ଲାଗେ। ସପ୍ଲାୟରଙ୍କୁ ଦେୟ ଦିଅନ୍ତୁ, ଯେଉଁ ମାସରେ ଦେବେ ସେହି ମାସରେ କ୍ରେଡିଟ୍ ନିଜେ ପୁଣି ମିଳିବ।
+You can change an action until you file GSTR-3B; then press “recompute 2B” on the portal.	GSTR-3B फाइल करने तक आप फैसला बदल सकते हैं; फिर पोर्टल पर “recompute 2B” दबाएँ।	GSTR-3B ଫାଇଲ କରିବା ପର୍ଯ୍ୟନ୍ତ ଆପଣ ନିଷ୍ପତ୍ତି ବଦଳାଇପାରିବେ; ତା’ପରେ ପୋର୍ଟାଲରେ “recompute 2B” ଦବାନ୍ତୁ।
+IMS (Invoice Management System) in short	IMS (इनवॉइस मैनेजमेंट सिस्टम) संक्षेप में	IMS (ଇନଭଏସ୍ ମ୍ୟାନେଜମେଣ୍ଟ ସିଷ୍ଟମ୍) ସଂକ୍ଷେପରେ
+Pick the last month of the quarter (June, September, December or March) to mark CMP-08 filed.	CMP-08 फाइल हुआ दर्ज करने के लिए तिमाही का आखिरी महीना चुनें (जून, सितंबर, दिसंबर या मार्च)।	CMP-08 ଫାଇଲ ହୋଇଛି ଚିହ୍ନିତ କରିବାକୁ ତିନିମାସର ଶେଷ ମାସ ବାଛନ୍ତୁ (ଜୁନ୍, ସେପ୍ଟେମ୍ବର, ଡିସେମ୍ବର କିମ୍ବା ମାର୍ଚ୍ଚ)।
+For self-assessment, use the cash amount above. Pay by UPI / net banking by the 25th.	स्व-मूल्यांकन के लिए ऊपर की नकद राशि लें। 25 तारीख तक UPI / नेट बैंकिंग से भुगतान करें।	ସ୍ୱ-ମୂଲ୍ୟାଙ୍କନ ପାଇଁ ଉପରର ନଗଦ ରାଶି ନିଅନ୍ତୁ। 25 ତାରିଖ ପୂର୍ବରୁ UPI / ନେଟ୍ ବ୍ୟାଙ୍କିଙ୍ଗରେ ଦେୟ ଦିଅନ୍ତୁ।
+File with EVC (OTP) or DSC. Enter the ARN below — the unused credit is then carried to next month here.	EVC (OTP) या DSC से फाइल करें। नीचे ARN डालें — बचा हुआ क्रेडिट यहाँ अगले महीने में चला जाएगा।	EVC (OTP) କିମ୍ବା DSC ରେ ଫାଇଲ କରନ୍ତୁ। ତଳେ ARN ଦିଅନ୍ତୁ — ବଳକା କ୍ରେଡିଟ୍ ଏଠାରେ ପରମାସକୁ ଚାଲିଯିବ।
+Table 4 is filled from 2B. Enter the give-backs above in 4(B)(1) and 4(B)(2), and credit taken again in 4(D)(1).	टेबल 4 2B से भरती है। ऊपर के वापसी वाले क्रेडिट 4(B)(1) और 4(B)(2) में, और दोबारा लिया क्रेडिट 4(D)(1) में डालें।	ଟେବୁଲ୍ 4, 2B ରୁ ଭରିହୁଏ। ଉପରର ଫେରସ୍ତ କ୍ରେଡିଟ୍ 4(B)(1) ଓ 4(B)(2) ରେ, ଏବଂ ପୁଣି ନିଆଯାଇଥିବା କ୍ରେଡିଟ୍ 4(D)(1) ରେ ଦିଅନ୍ତୁ।
+Checks clean · GSTR-1 · 2B loaded · 3B filed	जाँच ठीक · GSTR-1 · 2B लोड · 3B फाइल	ଯାଞ୍ଚ ଠିକ୍ · GSTR-1 · 2B ଲୋଡ୍ · 3B ଫାଇଲ
+3B not marked	3B दर्ज नहीं	3B ଚିହ୍ନିତ ନୁହେଁ
+Everything on this bill has already been returned.	इस बिल का सारा सामान पहले ही वापस हो चुका है।	ଏହି ବିଲ୍‌ର ସବୁ ଜିନିଷ ପୂର୍ବରୁ ଫେରସ୍ତ ହୋଇସାରିଛି।
+Purchase price is locked to the original bill. A GST credit note is made automatically. Stock goes back to the batch it was sold from.	दाम मूल बिल वाला ही रहता है। GST क्रेडिट नोट अपने आप बनता है। स्टॉक उसी बैच में वापस जाता है जिससे बेचा गया था।	ଦାମ ମୂଳ ବିଲ୍‌ର ହିଁ ରହେ। GST କ୍ରେଡିଟ୍ ନୋଟ୍ ନିଜେ ତିଆରି ହୁଏ। ଷ୍ଟକ୍ ସେହି ବ୍ୟାଚ୍‌କୁ ଫେରେ ଯେଉଁଥିରୁ ବିକ୍ରି ହୋଇଥିଲା।
+Points earned on these items are taken back: {n}.	इन चीज़ों पर मिले पॉइंट वापस लिए जाएँगे: {n}।	ଏହି ଜିନିଷରେ ମିଳିଥିବା ପଏଣ୍ଟ ଫେରାଇ ନିଆଯିବ: {n}।
+Price list	दाम सूची	ଦାମ ତାଲିକା
+Return not saved: {e}	वापसी सेव नहीं हुई: {e}	ଫେରସ୍ତ ସେଭ୍ ହେଲା ନାହିଁ: {e}
+Bill not saved: {e}	बिल सेव नहीं हुआ: {e}	ବିଲ୍ ସେଭ୍ ହେଲା ନାହିଁ: {e}
+Scan not added: {e}	स्कैन नहीं जुड़ा: {e}	ସ୍କାନ୍ ଯୋଡ଼ା ହେଲା ନାହିଁ: {e}
+This bill has no customer, so the refund cannot go to customer credit.	इस बिल पर ग्राहक नहीं है, इसलिए पैसा ग्राहक के उधार खाते में नहीं जा सकता।	ଏହି ବିଲ୍‌ରେ ଗ୍ରାହକ ନାହାନ୍ତି, ତେଣୁ ଟଙ୍କା ଗ୍ରାହକଙ୍କ ଉଧାର ଖାତାକୁ ଯାଇପାରିବ ନାହିଁ।
+Credit (udhaar) needs a customer on the bill.	उधार के लिए बिल पर ग्राहक होना ज़रूरी है।	ଉଧାର ପାଇଁ ବିଲ୍‌ରେ ଗ୍ରାହକ ଆବଶ୍ୟକ।
+Too many wrong PINs. Try again in {n} seconds.	बहुत बार गलत PIN। {n} सेकंड बाद फिर कोशिश करें।	ବହୁତ ଥର ଭୁଲ PIN। {n} ସେକେଣ୍ଡ ପରେ ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।
+Keep at least one owner who is not blocked.	कम से कम एक मालिक रखें जो ब्लॉक न हो।	ଅତି କମରେ ଜଣେ ମାଲିକ ରଖନ୍ତୁ ଯିଏ ବ୍ଲକ୍ ହୋଇନାହାନ୍ତି।
+Shop key saved.	शॉप की सेव हो गई।	ଶପ୍ କି ସେଭ୍ ହେଲା।
+Or paste the shop key from the main counter	या मुख्य काउंटर से शॉप की पेस्ट करें	କିମ୍ବା ମୁଖ୍ୟ କାଉଣ୍ଟରରୁ ଶପ୍ କି ପେଷ୍ଟ କରନ୍ତୁ
+{name} added as store {code}.	{name} स्टोर {code} के रूप में जुड़ गया।	{name} ଷ୍ଟୋର୍ {code} ଭାବେ ଯୋଡ଼ା ହେଲା।
+{name} already has this mobile number. Open that customer instead.	{name} के पास पहले से यह मोबाइल नंबर है। उसी ग्राहक को खोलें।	{name}ଙ୍କ ପାଖରେ ଆଗରୁ ଏହି ମୋବାଇଲ୍ ନମ୍ବର ଅଛି। ସେହି ଗ୍ରାହକଙ୍କୁ ଖୋଲନ୍ତୁ।
+Salary for {m} is already booked.	{m} का वेतन पहले ही दर्ज हो चुका है।	{m}ର ଦରମା ଆଗରୁ ଦର୍ଜ ହୋଇସାରିଛି।
+preview	झलक	ଝଲକ
+Choose the product.	सामान चुनें।	ଜିନିଷ ବାଛନ୍ତୁ।
+Every step needs a quantity of 2 or more and a price each above ₹0.	हर स्टेप में मात्रा 2 या ज़्यादा और दाम ₹0 से ज़्यादा होना चाहिए।	ପ୍ରତ୍ୟେକ ଷ୍ଟେପ୍‌ରେ ପରିମାଣ 2 କିମ୍ବା ଅଧିକ ଓ ଦାମ ₹0 ରୁ ଅଧିକ ହେବା ଦରକାର।
+Buy and Get must be 1 or more.	खरीदें और पाएँ 1 या ज़्यादा होने चाहिए।	କିଣନ୍ତୁ ଓ ପାଆନ୍ତୁ 1 କିମ୍ବା ଅଧିକ ହେବା ଦରକାର।
+% off must be between 1 and 100.	% छूट 1 से 100 के बीच होनी चाहिए।	% ରିହାତି 1 ରୁ 100 ମଧ୍ୟରେ ହେବା ଦରକାର।
+% off must be between 1 and 99.	% छूट 1 से 99 के बीच होनी चाहिए।	% ରିହାତି 1 ରୁ 99 ମଧ୍ୟରେ ହେବା ଦରକାର।
+Choose the category.	कैटेगरी चुनें।	ବର୍ଗ ବାଛନ୍ତୁ।
+Choose two different products.	दो अलग-अलग सामान चुनें।	ଦୁଇଟି ଅଲଗା ଜିନିଷ ବାଛନ୍ତୁ।
+Enter the ₹ off.	₹ छूट डालें।	₹ ରିହାତି ଦିଅନ୍ତୁ।
+Enter the bill amount and the ₹ off.	बिल राशि और ₹ छूट डालें।	ବିଲ୍ ରାଶି ଓ ₹ ରିହାତି ଦିଅନ୍ତୁ।
+₹ off must be less than the bill amount.	₹ छूट बिल राशि से कम होनी चाहिए।	₹ ରିହାତି ବିଲ୍ ରାଶିଠାରୁ କମ୍ ହେବା ଦରକାର।
+The end date is before the start date.	खत्म होने की तारीख शुरू होने की तारीख से पहले है।	ଶେଷ ତାରିଖ ଆରମ୍ଭ ତାରିଖ ପୂର୍ବରୁ ଅଛି।
+The whole file is checked first; nothing changes if it is damaged or the password is wrong.	पहले पूरी फाइल जाँची जाती है; फाइल खराब हो या पासवर्ड गलत हो तो कुछ नहीं बदलता।	ପ୍ରଥମେ ପୂରା ଫାଇଲ ଯାଞ୍ଚ ହୁଏ; ଫାଇଲ ଖରାପ କିମ୍ବା ପାସୱାର୍ଡ ଭୁଲ ହେଲେ କିଛି ବଦଳେ ନାହିଁ।
+Write the password down. Without it the backup cannot be opened — not even by us.	पासवर्ड लिखकर रखें। इसके बिना बैकअप नहीं खुलेगा — हमसे भी नहीं।	ପାସୱାର୍ଡ ଲେଖି ରଖନ୍ତୁ। ଏହା ବିନା ବ୍ୟାକଅପ୍ ଖୋଲିବ ନାହିଁ — ଆମଠାରୁ ମଧ୍ୟ ନୁହେଁ।
+Backup restored. Opening it…	बैकअप वापस आ गया। खोल रहे हैं…	ବ୍ୟାକଅପ୍ ଫେରିଲା। ଖୋଲୁଛି…
+Backup failed: {e}	बैकअप नहीं बना: {e}	ବ୍ୟାକଅପ୍ ହେଲା ନାହିଁ: {e}
+Last backup:	पिछला बैकअप:	ଶେଷ ବ୍ୟାକଅପ୍:
+Could not read that file: {e}	वह फाइल पढ़ी नहीं जा सकी: {e}	ସେହି ଫାଇଲ ପଢ଼ାଗଲା ନାହିଁ: {e}
+Loading stopped: {e}	लोड करना रुक गया: {e}	ଲୋଡ୍ ବନ୍ଦ ହେଲା: {e}
+GST rates are not changed — check items marked Nil.	GST दरें नहीं बदली गईं — Nil वाले सामान जाँचें।	GST ହାର ବଦଳାଯାଇନାହିଁ — Nil ଚିହ୍ନିତ ଜିନିଷ ଯାଞ୍ଚ କରନ୍ତୁ।
+Fix items later in Products, or fix the Excel and load it again — items already loaded are updated, not added twice.	सामान बाद में Products में ठीक करें, या Excel ठीक करके फिर लोड करें — पहले से लोड सामान अपडेट होगा, दो बार नहीं जुड़ेगा।	ଜିନିଷ ପରେ Productsରେ ଠିକ୍ କରନ୍ତୁ, କିମ୍ବା Excel ଠିକ୍ କରି ପୁଣି ଲୋଡ୍ କରନ୍ତୁ — ଆଗରୁ ଲୋଡ୍ ହୋଇଥିବା ଜିନିଷ ଅପଡେଟ୍ ହେବ, ଦୁଇଥର ଯୋଡ଼ା ହେବ ନାହିଁ।
+Choose	चुनें	ବାଛନ୍ତୁ
+Optional	ज़रूरी नहीं	ଇଚ୍ଛାଧୀନ
+Same as mobile	मोबाइल वाला ही	ମୋବାଇଲ୍ ପରି
+Shop no., street, area	दुकान नं., गली, इलाका	ଦୋକାନ ନଂ., ରାସ୍ତା, ଅଞ୍ଚଳ
+Could not read that image.	वह फोटो पढ़ी नहीं जा सकी।	ସେହି ଫଟୋ ପଢ଼ାଗଲା ନାହିଁ।
+14 digits	14 अंक	14 ଅଙ୍କ
+No product found	कोई सामान नहीं मिला	କୌଣସି ଜିନିଷ ମିଳିଲା ନାହିଁ
+Type name or barcode	नाम या बारकोड लिखें	ନାମ କିମ୍ବା ବାରକୋଡ୍ ଲେଖନ୍ତୁ
+Buying unit	खरीद की इकाई	କିଣିବା ଏକକ
+All other ITC:	बाकी सारा ITC:	ବାକି ସମସ୍ତ ITC:
+Check the batch, branch and quantity.	बैच, शाखा और मात्रा जाँचें।	ବ୍ୟାଚ୍, ଶାଖା ଓ ପରିମାଣ ଯାଞ୍ଚ କରନ୍ତୁ।
+The bill has no items.	बिल में कोई सामान नहीं है।	ବିଲ୍‌ରେ କୌଣସି ଜିନିଷ ନାହିଁ।

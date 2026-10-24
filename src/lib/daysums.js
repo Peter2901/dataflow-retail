@@ -4,7 +4,7 @@
 // and kept (table daySums, this device only); today is always summed fresh. A bill for a past day that
 // arrives later (an offline counter catching up, a back-dated bill) removes that day's row, so it is
 // summed again next time.
-import { db } from '../db.js';
+import { db, writeSoon } from '../db.js';
 import { localISO } from './util.js';
 
 const DAY = 864e5;
@@ -57,8 +57,11 @@ export async function daySumsBetween(storeId, fromDay, toDay) {
   for (let i = 0; i < days.length; i++) {
     const d = days[i];
     if (have[i] && d < today) { out.push(have[i]); continue; }
-    const s = summarize(storeId, d, await billsOfDay(d));
-    if (d < today) await db.daySums.put(s);                 // a finished day is kept
+    const bills = await billsOfDay(d);
+    const s = summarize(storeId, d, bills);
+    // A finished day is kept. Saved a moment later (a caller may be a read-only live query), and only if no
+    // bill for that day arrived in between (a late counter), so a stale total is never kept.
+    if (d < today) writeSoon(async () => { const t0 = dayStartTs(d); if ((await db.sales.where('ts').between(t0, t0 + DAY, true, false).count()) === bills.length) await db.daySums.put(s); });
     out.push(s);
   }
   return out;

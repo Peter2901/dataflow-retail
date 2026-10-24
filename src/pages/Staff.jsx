@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { useApp, useLive, useToast, PageHead, Table, Btn, Modal, Input, Tabs, Card, Stat, Badge } from '../ui/kit.jsx';
 import { inr, r2, sum, uid, fmtDT, waLink, todayISO, localISO } from '../lib/util.js';
 import { post } from '../lib/accounts.js';
-import { audit } from '../lib/sales.js';
+import { audit, withLock } from '../lib/sales.js';
 
 const monthKey = d => localISO(d).slice(0, 7);
 
@@ -88,7 +88,9 @@ function Salary() {
   const done = runs.length > 0;
   const [slip, setSlip] = useState(null);
   const T = k => r2(sum(rows, r => r[k]));
-  const run = async () => {
+  // One salary run per month, even if two devices press the button (checked again just before saving).
+  const run = () => withLock('payroll', async () => {
+    if (await db.payroll.where('month').equals(month).count()) { toast(`Salary for ${month} is already booked.`, 'warn'); return; }
     for (const r of rows) await db.payroll.add({ id: uid('pr_'), ...r, status: 'unpaid', createdAt: Date.now() });
     await post({ ref: 'SAL-' + month, type: 'salary', narration: `Salary for ${month}`, lines: [
       { acc: 'salary', dr: T('gross') }, { acc: 'pf_er', dr: r2(T('pfEr') + T('esiEr')) },
@@ -96,12 +98,16 @@ function Salary() {
     ] });
     await audit('payroll_run', { month, net: T('net') }, user);
     toast(`Salary for ${month} worked out and booked. Mark it paid once the bank transfer is done.`);
-  };
-  const pay = async () => {
-    for (const r of runs.filter(x => x.status !== 'paid')) await db.payroll.update(r.id, { status: 'paid', paidAt: Date.now() });
-    await post({ ref: 'SALPAY-' + month, type: 'payment', narration: `Salary paid for ${month}`, lines: [{ acc: 'salary_payable', dr: r2(sum(runs, r => r.net)) }, { acc: 'bank', cr: r2(sum(runs, r => r.net)) }] });
+  });
+  // Only the staff not paid yet are paid (and booked) — never the same salary twice.
+  const pay = () => withLock('payroll', async () => {
+    const unpaid = (await db.payroll.where('month').equals(month).toArray()).filter(x => x.status !== 'paid');
+    if (!unpaid.length) return;
+    for (const r of unpaid) await db.payroll.update(r.id, { status: 'paid', paidAt: Date.now() });
+    const amt = r2(sum(unpaid, r => r.net));
+    if (amt) await post({ ref: 'SALPAY-' + month, type: 'payment', narration: `Salary paid for ${month}`, lines: [{ acc: 'salary_payable', dr: amt }, { acc: 'bank', cr: amt }] });
     toast('Marked as paid.');
-  };
+  });
   const list = done ? runs : rows;
   return (
     <div className="stack">

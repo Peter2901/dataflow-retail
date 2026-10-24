@@ -99,6 +99,15 @@ export function unitErrors(p) {
   if (new Set(used).size !== used.length) errs.push('Units: each unit needs a different name.');
   if (names[0] && names[1] && !(num(u.c12) > 0)) errs.push(`Units: how many ${names[1]} are in 1 ${names[0]}?`);
   if (names[2] && !(num(u.c23) > 0)) errs.push(`Units: how many ${names[2]} are in 1 ${names[1]}?`);
+  // Stock is counted to 3 decimals of the unit it is kept in. The smallest unit must fit that exactly
+  // (1 Gram = 0.001 Kg is fine; 1 Kg = 0.0333 Bag is not — 1 Kg would be counted as 0.033 Bag = 990 g).
+  if (!errs.length) {
+    const L = unitList(p), small = L[L.length - 1], base = L.find(x => x.base);
+    if (small && base && small !== base && Math.abs(small.factor * 1000 - Math.round(small.factor * 1000)) > 1e-6) {
+      const ok = L.filter(x => L.every(y => Math.abs((y.factor / x.factor) * 1000 - Math.round((y.factor / x.factor) * 1000)) < 1e-6)).map(x => x.name);
+      errs.push(`Units: keep stock in ${ok.join(' or ')}, not ${base.name} — 1 ${small.name} cannot be counted exactly in ${base.name}.`);
+    }
+  }
   return errs;
 }
 

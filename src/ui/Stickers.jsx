@@ -18,8 +18,9 @@ function Code({ code, h }) {
     if (!ref.current || !code) return;
     try {
       JsBarcode(ref.current, code, { format: barcodeFormat(code), height: 40, fontSize: 14, margin: 0, textMargin: 1, width: 2 });
-      const w = ref.current.getAttribute('width'), hh = ref.current.getAttribute('height');
-      ref.current.setAttribute('viewBox', `0 0 ${parseFloat(w)} ${parseFloat(hh)}`);
+      const w = parseFloat(ref.current.getAttribute('width')), hh = parseFloat(ref.current.getAttribute('height'));
+      if (!(w > 0 && hh > 0)) return;                        // the barcode could not be drawn: leave it empty
+      ref.current.setAttribute('viewBox', `0 0 ${w} ${hh}`);
       ref.current.setAttribute('preserveAspectRatio', 'none');
       ref.current.removeAttribute('width'); ref.current.removeAttribute('height');
     } catch { /* bad code: leave empty */ }

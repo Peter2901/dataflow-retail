@@ -94,7 +94,8 @@ function haystacks(products) {
   return h;
 }
 
-export function smartSearch(q, products, limit = 8) {
+// all: include products hidden from the counter (the Products page shows them too).
+export function smartSearch(q, products, limit = 8, { all = false } = {}) {
   const s = String(q || '').trim();
   if (s.length < 2) return [];
   const lower = s.toLowerCase();
@@ -107,7 +108,7 @@ export function smartSearch(q, products, limit = 8) {
   // Pass 1 — plain "contains" (cheap).
   for (let i = 0; i < products.length; i++) {
     const p = products[i];
-    if (p.active === false) continue;
+    if (!all && p.active === false) continue;
     const hay = H[i];
     let score = 0;
     for (let k = 0; k < forms.length; k++) {

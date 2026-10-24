@@ -22,6 +22,9 @@ export function Connect() {
       await connectDevice(c, { terminal: 'P' + Math.random().toString(36).slice(2, 5).toUpperCase(), deviceMode: 'mobile' });
       setBusy('Downloading your store…');
       await pullUntilQuiet(40, (i) => setBusy(`Downloading your store… (${(i + 1) * 1000}+ records)`));
+      // The local database was emptied and filled again under this screen: start the app afresh on it.
+      setTimeout(() => window.location.reload(), 300);
+      return;
     } catch (e) { setErr(e.message || 'Could not connect.'); }
     setBusy('');
   };

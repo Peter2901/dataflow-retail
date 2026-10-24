@@ -1,5 +1,5 @@
 // Double-entry books. Every bill, purchase, payment and salary posts balanced entries by itself.
-import { db } from '../db.js';
+import { db, writeSoon } from '../db.js';
 import { uid, r2, sum } from './util.js';
 
 export const GROUPS = { asset: 'Assets', liability: 'Liabilities', equity: 'Capital', income: 'Income', expense: 'Expenses' };
@@ -123,7 +123,10 @@ async function allTimeBalances() {
     b = {};
     await db.journal.where('ts').below(cp).each(e => addEntry(b, e));
   }
-  if (!saved || saved.cp !== cp) await db.syncMeta.put({ key: 'bal:cp', v: { cp, n: await db.journal.where('ts').below(cp).count(), b } });
+  if (!saved || saved.cp !== cp) {
+    const v = { cp, n: await db.journal.where('ts').below(cp).count(), b: { ...b } };
+    writeSoon(() => db.syncMeta.put({ key: 'bal:cp', v }));          // screens read this inside a live query: save a moment later
+  }
   await db.journal.where('ts').aboveOrEqual(cp).each(e => addEntry(b, e));
   return b;
 }

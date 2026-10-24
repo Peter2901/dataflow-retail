@@ -80,9 +80,11 @@ function Detail({ c: init, due, canSeePhone, onClose }) {
     const ph = String(c.phone).replace(/\D/g, '');
     if (ph.length !== 10) return toast('Mobile number must have 10 digits.', 'bad');
     if (c.gstin && !validGSTIN(c.gstin)) return toast('GSTIN does not pass the check.', 'bad');
+    const same = (await db.customers.where('phone').equals(ph).toArray()).find(x => x.id !== c.id && !x.erased);
+    if (same) return toast(`${same.name} already has this mobile number. Open that customer instead.`, 'bad');
     const rec = { ...c, phone: ph, creditLimit: Number(c.creditLimit) || 0, id: c.id || uid('c_'), createdAt: c.createdAt || Date.now(), points: c.points || 0, yearSpend: c.yearSpend || 0, visits: c.visits || 0 };
     // Points, spend and visits come from the bills (they may have changed while this was open): keep the saved ones.
-    const DERIVED = ['points', 'yearSpend', 'lifeSpend', 'visits', 'lastVisit', 'base'];
+    const DERIVED = ['points', 'ptsRaw', 'yearSpend', 'lifeSpend', 'visits', 'lastVisit', 'base'];
     const details = Object.fromEntries(Object.entries(rec).filter(([k]) => !DERIVED.includes(k)));
     if (c.id && await db.customers.get(c.id)) await db.customers.update(c.id, details);
     else await db.customers.put(rec);

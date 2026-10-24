@@ -94,16 +94,21 @@ export async function recalcCustomer(id) {
   if (!c?.base) return;
   const e = billEffect(await db.sales.where('customerId').equals(id).toArray());
   const b = c.base;
-  const next = { points: Math.max(0, b.points + e.points), yearSpend: r2(b.yearSpend + e.spend), lifeSpend: r2(b.lifeSpend + e.spend), visits: Math.max(0, b.visits + e.visits), lastVisit: Math.max(c.lastVisit || 0, e.last) || null };
-  if (['points', 'yearSpend', 'lifeSpend', 'visits', 'lastVisit'].some(k => (c[k] ?? null) !== next[k])) await db.customers.update(id, next);
+  const ptsRaw = b.points + e.points;
+  const next = { ptsRaw, points: Math.max(0, ptsRaw), yearSpend: r2(b.yearSpend + e.spend), lifeSpend: r2(b.lifeSpend + e.spend), visits: Math.max(0, b.visits + e.visits), lastVisit: Math.max(c.lastVisit || 0, e.last) || null };
+  if (['ptsRaw', 'points', 'yearSpend', 'lifeSpend', 'visits', 'lastVisit'].some(k => (c[k] ?? null) !== next[k])) await db.customers.update(id, next);
 }
 
-/** One new bill of this customer (here or from another counter): add just its effect — no re-reading. */
+/** One new bill of this customer (here or from another counter): add just its effect — no re-reading.
+ *  The exact running total (ptsRaw) may dip below 0 for a moment (bills from two counters arriving in a
+ *  different order); the points shown are never below 0. Adding up in any order gives the same answer,
+ *  so every counter ends with the same points. */
 export async function addBillToCustomer(id, s) {
   const e = billEffect([s]);
   await db.customers.where('id').equals(id).modify(c => {
     if (!c.base) return;
-    c.points = Math.max(0, (c.points || 0) + e.points); c.yearSpend = r2((c.yearSpend || 0) + e.spend); c.lifeSpend = r2((c.lifeSpend || 0) + e.spend);
+    c.ptsRaw = (c.ptsRaw ?? c.points ?? 0) + e.points; c.points = Math.max(0, c.ptsRaw);
+    c.yearSpend = r2((c.yearSpend || 0) + e.spend); c.lifeSpend = r2((c.lifeSpend || 0) + e.spend);
     c.visits = Math.max(0, (c.visits || 0) + e.visits); if (e.last > (c.lastVisit || 0)) c.lastVisit = e.last;
   });
 }

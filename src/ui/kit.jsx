@@ -2,12 +2,14 @@ import React, { useEffect, useState, useRef, createContext, useContext, useCallb
 import Dexie, { liveQuery } from 'dexie';
 import { db } from '../db.js';
 import { hashPin } from '../lib/util.js';
+import { pinWait, pinFailed, pinOk, waitText } from '../lib/pinguard.js';
 
 // Re-runs a database query whenever the data changes.
 export function useLive(fn, deps = [], initial = undefined) {
   const [v, setV] = useState(initial);
   useEffect(() => {
-    const sub = liveQuery(fn).subscribe({ next: setV, error: e => console.error(e) });
+    // "Database closed" only happens while a phone is being set up again (the app reloads right after).
+    const sub = liveQuery(fn).subscribe({ next: setV, error: e => { if (e?.name !== 'DatabaseClosedError') console.error(e); } });
     return () => sub.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
@@ -186,10 +188,12 @@ export function ApproveHost({ children }) {
   const ask = useCallback(reason => new Promise(resolve => { setPin(''); setErr(''); setReq({ reason, resolve }); }), []);
   const submit = async e => {
     e?.preventDefault();
+    const wait = pinWait();
+    if (wait) { setErr(waitText(wait)); setPin(''); return; }
     const h = await hashPin(pin);
-    const u = (await db.users.toArray()).find(x => x.pinHash === h && ['owner', 'manager'].includes(x.role));
-    if (!u) { setErr('That PIN is not a manager or owner PIN.'); setPin(''); return; }
-    req.resolve(u); setReq(null);
+    const u = (await db.users.toArray()).find(x => x.pinHash === h && ['owner', 'manager'].includes(x.role) && !x.disabled);
+    if (!u) { const f = pinFailed(); setErr(f.n % 5 === 0 ? waitText(pinWait()) : 'That PIN is not a manager or owner PIN.'); setPin(''); return; }
+    pinOk(); req.resolve(u); setReq(null);
   };
   return (
     <ApproveCtx.Provider value={ask}>

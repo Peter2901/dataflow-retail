@@ -77,6 +77,9 @@ function Users() {
   const save = async () => {
     if (!edit.name || (!edit.id && !/^\d{4}$/.test(edit.pin || ''))) return toast('Name and a 4-digit PIN are needed.', 'bad');
     const rec = { id: edit.id || uid('u_'), name: edit.name, role: edit.role, disabled: !!edit.disabled, pinHash: edit.pinHash };
+    // Someone must always be able to open Settings: the last owner cannot be blocked or made something else.
+    const owners = users.filter(u => u.id !== rec.id && u.role === 'owner' && !u.disabled).length + (rec.role === 'owner' && !rec.disabled ? 1 : 0);
+    if (!owners) return toast('Keep at least one owner who is not blocked.', 'bad');
     if (edit.pin) {
       const h = await hashPin(edit.pin);
       if (users.some(u => u.pinHash === h && u.id !== rec.id)) return toast('Another user already has that PIN.', 'bad');
@@ -304,7 +307,7 @@ function Stores() {
   return (
     <div className="stack">
       <div className="card"><Table rows={stores} cols={[{ label: 'Store', key: 'name' }, { label: 'Code', key: 'code' }, { label: '', render: s => s.id === settings.currentStore ? <Badge tone="ok">This computer</Badge> : <Btn size="sm" onClick={async () => { await setSetting('currentStore', s.id); toast(`This computer now works as ${s.name}.`); }}>Use on this computer</Btn> }]} /></div>
-      <div className="row gap-s" style={{ alignItems: 'flex-end' }}><Input label="New store name" value={name} onChange={e => setName(e.target.value)} id="store-name" /><Btn onClick={async () => { if (!name) return; const n = (await db.stores.count()) + 1; await db.stores.add({ id: 'S' + n, name, code: 'S' + n }); setName(''); }}>Add store</Btn></div>
+      <div className="row gap-s" style={{ alignItems: 'flex-end' }}><Input label="New store name" value={name} onChange={e => setName(e.target.value)} id="store-name" /><Btn onClick={async () => { if (!name.trim()) return; const ids = new Set((await db.stores.toArray()).map(s => s.id)); let n = ids.size + 1; while (ids.has('S' + n)) n++; await db.stores.add({ id: 'S' + n, name: name.trim(), code: 'S' + n }); toast(`${name.trim()} added as store S${n}.`); setName(''); }}>Add store</Btn></div>
       <p className="small muted">Products, prices and customers are shared by all stores. Stock, bills and shifts belong to each store. Move stock with Stock › Transfer.</p>
     </div>
   );

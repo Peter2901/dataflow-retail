@@ -2,6 +2,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { db, ensureSeeded, getSettings, setSetting } from './db.js';
 import { AppCtx, ToastHost, ApproveHost, ConfirmHost, useLive } from './ui/kit.jsx';
 import { hashPin, localISO } from './lib/util.js';
+import { pinWait, pinFailed, pinOk, waitText } from './lib/pinguard.js';
 import { audit } from './lib/sales.js';
 import { startSync, getStatus, onSyncStatus, setSyncUser } from './lib/sync.js';
 import Dashboard from './pages/Dashboard.jsx';
@@ -133,10 +134,17 @@ function Login({ onLogin, settings }) {
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
   const tryPin = async p => {
+    const wait = pinWait();
+    if (wait) { setErr(waitText(wait)); setPin(''); return; }
     const h = await hashPin(p);
     const u = (await db.users.toArray()).find(x => x.pinHash === h && !x.disabled);
-    if (u) { await audit('login', { role: u.role }, u); onLogin(u); }
-    else { setErr('Wrong PIN. Try again.'); setPin(''); }
+    if (u) { pinOk(); await audit('login', { role: u.role }, u); onLogin(u); }
+    else {
+      const f = pinFailed();
+      if (f.n % 5 === 0) { audit('pin_locked', { tries: f.n, where: 'login' }, null); setErr(waitText(pinWait())); }
+      else setErr('Wrong PIN. Try again.');
+      setPin('');
+    }
   };
   const press = d => {
     setErr('');

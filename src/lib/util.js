@@ -7,8 +7,12 @@ export const toPaise = r => Math.round((Number(r) || 0) * 100);
 export const fromPaise = p => Math.round(p) / 100;
 export const r2 = v => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 
-export const inr = (v, dec = 2) =>
-  '₹' + (Number(v) || 0).toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+// −₹13.00, not ₹-13.00
+export const inr = (v, dec = 2) => {
+  const n = Number(v) || 0;
+  const s = Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return (n < 0 && Number(s.replace(/,/g, '')) !== 0 ? '−₹' : '₹') + s;
+};
 export const num = (v, dec = 0) => (Number(v) || 0).toLocaleString('en-IN', { maximumFractionDigits: dec, minimumFractionDigits: dec });
 
 // Local (India) calendar date as YYYY-MM-DD. toISOString() alone would give the UTC date.
