@@ -46,6 +46,23 @@ New on 23–24 Oct:
   GST are detected and converted) or via the converted file `Sameer_Products_Ready_to_Import_v2.xlsx`.
 - Type-to-find product picker (purchase bills, offers, orders, stock adjust).
 
+Hard-test round (24 Oct, see README › Hard tests):
+- Counter bill/return maths moved to `src/lib/cart.js` and `src/lib/returns.js`; stock jobs to `src/lib/stockOps.js`
+  (the screens and the big tests run the same code).
+- Returns: per line, back to the right batches, never more than the bill (money, tax, qty), B2B returns go to
+  GSTR-1 table 9B, points earned on returned items are taken back; saved one at a time and checked again
+  (two returns at the same moment can't over-refund).
+- Saved totals (books before today, GST months) are trusted through change marks in `src/db.js`
+  (`journalOldMark`, `salesMonthMark`) instead of counting lakhs of rows each time.
+- Hard tests: `tools/hardtest/` (README there; `run-all.sh` runs everything).
+- Sync: every device downloads all branches of its shop; loyalty points converge (`ptsRaw` running total);
+  transferred stock syncs; branch settings stay per branch. Owner-app stock alerts fixed for shop keys.
+- Safety: 5 wrong PINs = 30 s lock (`src/lib/pinguard.js`); buttons can't be double-pressed (kit `Btn`, `useOnce`);
+  purchase / debit-note / PO / order numbers under a lock; salary booked and paid once; offer checks
+  (`offerErrors`); unit rule (stock unit must count the smallest unit exactly); last owner can't be blocked;
+  duplicate customer mobiles refused.
+- Live queries never write (`writeSoon` in `src/db.js`).
+
 ## 5. File map (main ones)
 | Area | Files |
 |---|---|
@@ -55,7 +72,8 @@ New on 23–24 Oct:
 | GST | `src/pages/GstSaathi.jsx`, `src/lib/gst.js`, `public/gst-rules.json` |
 | Setup | `src/pages/Setup.jsx` (import, backup & restore), `src/pages/Settings.jsx` (cloud sync, shop key) |
 | Phone signing | `scripts/android-signing.cjs`, `.github/workflows/android.yml` |
-| Stress tools | `tools/stress/gen.js` (huge data), `tools/stress/mock-supabase.mjs` (shop-key cloud stand-in) |
+| Stress tools | `tools/stress/gen.js` (huge data), `tools/stress/mock-supabase.mjs` (shop-key cloud stand-in), `tools/stress/README.md` (how the hard tests run) |
+| Shared logic | `src/lib/cart.js`, `src/lib/returns.js`, `src/lib/stockOps.js`, `src/lib/pinguard.js` |
 
 ## 6. Not verified yet
 - Real Supabase project (run the latest `supabase/setup.sql` once), real Android phone, real thermal/label printer.

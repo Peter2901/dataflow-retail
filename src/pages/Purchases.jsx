@@ -128,7 +128,7 @@ function Suppliers() {
       <div className="grid g3"><Stat label="You owe suppliers" value={inr(totalOwed, 0)} /><Stat label="Due in the next 7 days" value={inr(dueWeek, 0)} tone={dueWeek ? 'warn' : undefined} /><div className="row" style={{ justifyContent: 'flex-end' }}><Btn kind="primary" onClick={() => setEdit({ name: '', gstin: '', phone: '', termsDays: 30, returnDays: 45, leadDays: 3 })}>Add supplier</Btn></div></div>
       <div className="card"><Table rows={suppliers} cols={[
         { label: 'Supplier', render: s => <><b>{s.name}</b><div className="small muted">{s.gstin || 'No GSTIN'} · {s.phone}</div></> },
-        { label: 'Pay within', render: s => `${s.termsDays} days` },
+        { label: 'Pay within', render: s => (Number(s.termsDays) > 0 ? `${Number(s.termsDays)} days` : 'On delivery') },
         { label: 'Return window', render: s => s.returnDays ? `${s.returnDays} days before expiry` : '—' },
         { label: 'You owe', num: true, render: s => inr(owed(s)) },
         { label: '', render: s => <div className="row gap-s"><Btn size="sm" onClick={() => setEdit({ ...s })}>Edit</Btn>{owed(s) > 0 && <Btn size="sm" kind="primary" onClick={() => setPay(s)}>Pay</Btn>}</div> },

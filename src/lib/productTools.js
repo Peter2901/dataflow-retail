@@ -1,35 +1,45 @@
 // Product helpers: duplicate finder + merge, HSN/GST hints, and "fill from pack photo".
 // Code first; AI only when code can't tell (and only if the store has AI on).
 import { db } from '../db.js';
-import { norm, similarity } from './match.js';
+import { simProfile, simScore } from './match.js';
 import { askAI, aiOn, photoToCanvas, canvasJpeg } from './smartai.js';
 import { ocrCanvas } from './billreader.js';
 import { audit } from './sales.js';
 import { validEAN } from './util.js';
 
 // ───────────── Duplicates
-const size = s => (norm(s).match(/\b\d+(?:\.\d+)?(?:g|kg|l|ml|pc)\b/) || [])[0] || '';
+// Before: every product against every other (25,000 products = 31 crore comparisons, the page froze).
+// Now: same barcode through one lookup; names only against products of the same size that share a word —
+// two names can only be 86 % alike if they share words, so the answer is the same, just instant.
 export function findDuplicates(products) {
   const act = products.filter(p => p.active !== false);
-  const pairs = [];
-  const seen = new Set();
-  for (let i = 0; i < act.length; i++) {
-    for (let j = i + 1; j < act.length; j++) {
-      const a = act[i], b = act[j];
-      let why = '';
-      if (a.barcode && a.barcode === b.barcode) why = 'Same barcode';
-      else {
-        if (size(a.name) !== size(b.name)) continue;
-        const sc = similarity(a.name, b.name);
-        if (sc >= 0.86) why = `Names ${Math.round(sc * 100)}% alike`;
+  const pairs = [], seen = new Set();
+  const add = (a, b, why) => { const k = a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id; if (seen.has(k)) return; seen.add(k); pairs.push({ a, b, why }); };
+  const byCode = new Map();
+  for (const p of act) if (p.barcode) { const l = byCode.get(p.barcode); if (l) l.push(p); else byCode.set(p.barcode, [p]); }
+  for (const l of byCode.values()) for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) add(l[i], l[j], 'Same barcode');
+  const prof = act.map(p => simProfile(p.name));
+  const buckets = new Map();
+  act.forEach((p, i) => { const sz = prof[i].size || ''; for (const t of prof[i].tok) { const k = sz + '|' + t; const l = buckets.get(k); if (l) l.push(i); else buckets.set(k, [i]); } });
+  const done = new Set();
+  const t0 = Date.now();
+  // Never freeze the screen: at most the first 500 pairs (merge those, then look again).
+  const full = () => pairs.length >= 500 || Date.now() - t0 > 1500;
+  scan: for (const [k, l] of buckets) {
+    if (l.length < 2 || l.length > 400) continue;       // a word in hundreds of names (a brand, a size) says nothing on its own
+    if (/\|\d+$/.test(k)) continue;                     // a bare number ("#12") is not a name
+    for (let x = 0; x < l.length; x++) {
+      for (let y = x + 1; y < l.length; y++) {
+        const i = l[x], j = l[y], key = i * act.length + j;
+        if (done.has(key)) continue;
+        done.add(key);
+        const sc = simScore(prof[i], prof[j]);
+        if (sc >= 0.86) add(act[i], act[j], `Names ${Math.round(sc * 100)}% alike`);
       }
-      if (!why) continue;
-      const k = [a.id, b.id].sort().join('|');
-      if (seen.has(k)) continue;
-      seen.add(k);
-      pairs.push({ a, b, why });
+      if (full()) break scan;
     }
   }
+  if (full()) { pairs.length = Math.min(pairs.length, 500); pairs.more = true; }
   return pairs;
 }
 
@@ -77,13 +87,17 @@ const HSN = [
  * Suggests HSN and GST for a new item name. 1) your own most similar product (HSN + GST),
  * 2) the built-in HSN list (HSN only — GST must be chosen by a person), 3) AI if on and asked.
  */
+const hsnProf = new WeakMap();
 export async function suggestHsnGst(name, products, { useAI = false } = {}) {
   const n = String(name || '').trim();
   if (n.length < 3) return null;
   let best = null;
+  const qp = simProfile(n);
   for (const p of products) {
     if (!p.hsn || p.active === false) continue;
-    const s = similarity(n, p.name + ' ' + (p.category || ''));
+    let pp = hsnProf.get(p);
+    if (!pp) { pp = simProfile(p.name + ' ' + (p.category || '')); hsnProf.set(p, pp); }   // worked out once per product
+    const s = simScore(qp, pp);
     if (!best || s > best.s) best = { p, s };
   }
   if (best && best.s >= 0.55) return { hsn: best.p.hsn, gst: best.p.gst, category: best.p.category, source: `same as your “${best.p.name}”`, sure: best.s >= 0.75 };

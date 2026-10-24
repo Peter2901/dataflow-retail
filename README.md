@@ -73,6 +73,11 @@ and every 8 seconds sends its new rows to one shared `records` table and pulls t
   Shop key). Rows are saved with that key and row-level security shows each shop only its own rows (run the latest
   setup SQL once). Every device of a shop needs the same key; the phone setup code carries it. A shop with its own
   Supabase project needs no key. Treat the key like a password.
+- **Branches:** every device downloads every branch of its shop (products, customers, books and GST are shared;
+  stock sent to another branch arrives there). Screens show only their own branch's stock and bills; each branch
+  keeps its own name and address. Run the latest setup SQL once (it adds an index for this).
+- Loyalty points are added up from the bills in a way that gives the same answer whatever order bills arrive in,
+  so every counter shows the same points.
 - Code: `src/lib/sync.js`.
 
 ## Purchase bills: Smart Scan, checks and barcodes
@@ -166,18 +171,47 @@ The app was tested (tools/stress) against a year of a busy 4-counter store: 25,0
 | Product search | 27.7 s | 0.9 s |
 | Stock & batches | crashed | 0.75 s |
 | Customers / Udhaar / Reports | — | 1.5 s / 0.4 s / 0.4 s |
-| Accounts | — | 3–4 s first time, 1.1 s after |
-| GST Saathi | — | 10 s first time (19 months worked out once), 3 s after |
+| Accounts | — | 0.3 s; balance sheet 8 s the very first time on a device (2.5 lakh entries added up once and kept), then instant |
+| GST Saathi | — | checks in 3 s; the year's turnover is worked out once in the background and kept |
 | Year summary / CA pack | — | 0.1 s / 0.1 s |
 | Counter: type "Atta" / typo "parlee biskut" | — | 0.1 s / 0.5 s |
 | Counter: one scan → on the bill | — | 0.3–0.4 s |
 | Counter: 8 scans back to back | lost scans | all 8 lines in 3.4 s |
 | Save an 8-line bill | — | 0.2 s |
 | Sync "anything new?" check | 37 s | 4 ms |
-| Backup (106 MB file) / restore | — | 48 s / 10 min (checked first, counts exact) |
+| Backup (106 MB file) / restore | — | 48 s / 6 min, was 10 min (checked first, counts exact) |
+| Find duplicates | froze on 25,000 | 2.6 s on 25,000 (first 500 shown), 0.08 s on 1,753 |
 | Import 20,000 rows | — | checked 0.3 s, loaded 0.3 s |
 
-The first open after updating the app upgrades the database once (about 2 minutes on data this size).
+The first open after updating the app upgrades the database once (about 2 minutes on data this size; a new
+install starts at the latest version and never needs it).
+
+## Hard tests (24 Oct 2026)
+
+Every feature, small to big, was driven through the real app at high volume (scripts and how to run them:
+`tools/hardtest/README.md`). Results, on a fresh store and on the huge store above:
+
+| Test | What was done | Result |
+|---|---|---|
+| Engine | 3,000 mixed jobs from 2 tabs × 4 workers at once — bills (units, wholesale, offers, points, GSTIN, split and udhaar payments), returns, purchases, supplier payments, debit notes, write-offs, branch transfers, expenses | Pass on both: bills right to the paisa, numbers unique with no gaps, tamper chain intact, stock = stock moves, every books entry balanced, balance sheet balances (₹51 crore on the huge store), udhaar, points, GSTR-1/3B = bills |
+| Fuzz | 60,000 random bills, 38,000 random returns, 20,000 offer sets, unit conversions, scale codes, odd search typing, GST set-off | Pass |
+| Every screen | every page and tab in English, Hindi and Odia; each role's menu | 66/66 fresh, 24/24 huge, no page errors |
+| Counter | 32 flows (all payments, points, GSTIN bill, hold, cancel, price change, wholesale, loose and scale items, units, returns, double press, 20-scan burst, X/Z report, cashier limits, wrong-PIN lock) | 32/32 fresh and huge |
+| Office | 35 flows (products, stock, expiry, buying, offers, customers, udhaar, accounts, Tally, reports, salary, WhatsApp orders, store, users, audit, Ask your shop) | 35/35 fresh and huge |
+| Sync | 4 counters + a phone billing and working at once, one counter offline for a minute | every device ends with the same bills, stock, dues, points, books and stock moves |
+| Supabase SQL | `supabase/setup.sql` on a real Postgres 16 | safe to run twice, shops cannot see or change each other's rows, owner-app numbers right |
+| Same moment | 10 returns of one bill fired at once from 2 windows, 10 times; 12 purchase bills at once | exactly one return saved each time, never more than the bill; purchase numbers all different |
+
+Problems the tests found, all fixed: two returns of the same bill at the same moment could together give back more
+than the bill; business (GSTIN) returns went to the wrong GSTR-1 table; returns of the same
+item on two lines, back to the wrong batch, or refunding more than the bill by rounding; points kept after a return;
+branch stock and shared products not reaching other branches; points different on different counters; transferred
+stock not syncing; owner-app stock alerts wrong with a shop key; Accounts saving inside a read-only screen query;
+double presses saving purchases, payments, salary or shifts twice; purchase / order numbers clashing between
+devices; salary booked or paid twice; an offer with an empty price making the item free; stock kept in the biggest
+unit rounding grams; unlimited PIN guesses; the last owner able to block themselves; duplicate customer mobiles;
+"Find duplicates" freezing on 25,000 products (now 0.08 s on Sameer's 1,753 items, same 74 pairs); a 25,000-row
+transfer dropdown; "undefined days" for suppliers without terms; ₹-13.00 shown instead of −₹13.00.
 
 ## Not built yet (next phase)
 

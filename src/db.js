@@ -121,6 +121,24 @@ export function writeSoon(fn) {
   setTimeout(() => { Dexie.ignoreTransaction(() => Promise.resolve().then(fn)).catch(e => console.warn('writeSoon', e)); }, 0);
 }
 
+// Change marks. Screens that keep saved totals (the books before today, GST month totals) ask these to know
+// if anything they added up has changed since — instead of counting lakhs of rows each time (counting
+// 2.5 lakh entries takes about 2 seconds). Writes from this tab are seen at once; the screens also check
+// again by counting every few minutes, for a second tab or window.
+const marks = { epoch: 0, journalOld: 0, salesMonth: new Map() };
+const todayStart = () => new Date().setHours(0, 0, 0, 0);
+const monthNo = ts => { const d = new Date(Number(ts) || 0); return d.getFullYear() * 100 + d.getMonth() + 1; };
+const bumpSales = ts => { const k = monthNo(ts); marks.salesMonth.set(k, (marks.salesMonth.get(k) || 0) + 1); };
+export const journalOldMark = () => `${marks.epoch}:${marks.journalOld}`;
+export const marksOutOfDate = () => { marks.epoch++; };       // after writes that skip the hooks (restore)
+export const salesMonthMark = (y, m) => `${marks.epoch}:${marks.salesMonth.get(y * 100 + m) || 0}`;
+db.journal.hook('creating', (k, o) => { if ((Number(o?.ts) || 0) < todayStart()) marks.journalOld++; });
+db.journal.hook('updating', (mods, k, o) => { if ((Number(o?.ts) || 0) < todayStart() || ('ts' in mods && Number(mods.ts) < todayStart())) marks.journalOld++; });
+db.journal.hook('deleting', (k, o) => { if ((Number(o?.ts) || 0) < todayStart()) marks.journalOld++; });
+db.sales.hook('creating', (k, o) => { bumpSales(o?.ts); });
+db.sales.hook('updating', (mods, k, o) => { bumpSales(o?.ts); if ('ts' in mods) bumpSales(mods.ts); });
+db.sales.hook('deleting', (k, o) => { if (o) bumpSales(o.ts); });
+
 export async function ensureSeeded() {
   const n = await db.settings.count();
   if (n === 0) await seedDemo(db);
@@ -139,6 +157,7 @@ export async function setSetting(key, value) {
 }
 
 export async function resetAll() {
+  marks.epoch++;                                   // every saved total is out of date now
   await db.delete();
   await db.open();
 }

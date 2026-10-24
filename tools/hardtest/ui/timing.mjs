@@ -1,0 +1,21 @@
+// Timings on the huge store for the screens made faster in the hard-test round.
+import { start, login, nav, tab, settle } from './lib.mjs';
+const [S, profile, port] = process.argv.slice(2);
+const { ctx, url } = await start({ S, profile, port });
+const page = await ctx.newPage();
+const errs = []; page.on('pageerror', e => errs.push(e.message));
+const T = async (label, fn) => { const t0 = Date.now(); try { const r = await fn(); console.log(label.padEnd(44), Date.now() - t0, 'ms', r || ''); } catch (e) { console.log(label.padEnd(44), 'FAIL', e.message.split('\n')[0]); } };
+await page.goto(url);
+await T('login → dashboard', async () => { await login(page, '1111'); await page.waitForFunction(() => document.querySelectorAll('.stat-value').length >= 3, null, { timeout: 120000 }); });
+await T('Accounts (first open, profit & loss)', async () => { await nav(page, 'Accounts'); await page.waitForFunction(() => /Income|Expenses/.test(document.querySelector('.main').innerText), null, { timeout: 120000 }); });
+await T('Accounts › Balance sheet (first time)', async () => { await tab(page, 'Balance sheet'); await page.waitForFunction(() => /What the business owns/.test(document.querySelector('.main').innerText) && /₹/.test(document.querySelector('.main').innerText), null, { timeout: 120000 }); });
+await T('Accounts › Cash book', async () => { await tab(page, 'Cash book'); await page.waitForFunction(() => /Cash in hand/.test(document.querySelector('.main').innerText), null, { timeout: 120000 }); });
+await T('Accounts again (saved total)', async () => { await nav(page, 'Dashboard'); await nav(page, 'Accounts'); await tab(page, 'Balance sheet'); await page.waitForFunction(() => /What the business owns/.test(document.querySelector('.main').innerText), null, { timeout: 120000 }); });
+await T('GST Saathi (first open: checks shown)', async () => { await nav(page, 'GST Saathi'); await page.waitForSelector('text=Checks before filing', { timeout: 180000 }); });
+await T('GST Saathi health card (year turnover)', async () => { await page.waitForFunction(() => /Turnover last year/.test(document.querySelector('.main').innerText) && !/Working it out/.test(document.querySelector('.main').innerText), null, { timeout: 180000 }); });
+await T('GST Saathi again', async () => { await nav(page, 'Dashboard'); await nav(page, 'GST Saathi'); await page.waitForSelector('text=Checks before filing', { timeout: 180000 }); });
+await T('Products › Find duplicates (25,000)', async () => { await nav(page, 'Products'); await page.click('button:has-text("Find duplicates")'); await page.waitForSelector('.modal:has-text("duplicates")', { timeout: 120000 }); const t = (await page.locator('.modal').innerText()).split('\n')[0]; await page.keyboard.press('Escape'); return t; });
+await T('Stock › Physical count tab', async () => { await nav(page, 'Stock & batches'); await tab(page, 'Physical count'); await settle(page); });
+await T('Udhaar & dues', async () => { await nav(page, 'Udhaar & dues'); await page.waitForSelector('.main button:text-is("Received")', { timeout: 120000 }); });
+console.log('page errors', errs.length, errs.slice(0, 3));
+await ctx.close(); process.exit(0);

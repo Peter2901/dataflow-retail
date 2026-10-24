@@ -1,5 +1,5 @@
 // Double-entry books. Every bill, purchase, payment and salary posts balanced entries by itself.
-import { db, writeSoon } from '../db.js';
+import { db, writeSoon, journalOldMark } from '../db.js';
 import { uid, r2, sum } from './util.js';
 
 export const GROUPS = { asset: 'Assets', liability: 'Liabilities', equity: 'Capital', income: 'Income', expense: 'Expenses' };
@@ -112,22 +112,50 @@ const addEntry = (b, e) => e.lines.forEach(l => (b[l.acc] = r2((b[l.acc] || 0) +
 // All-time balances are kept as a saved total up to the start of today plus today's entries, so the
 // Accounts screens do not re-add lakhs of entries each time. If any older entry was added since (a counter
 // synced late), the count before the saved point changes and the total is worked out again from scratch.
+// The total up to the start of today is also kept in memory: the balance sheet, profit so far and the
+// cash book ask for it at the same moment, and it must be added up once, not three times.
+let memo = null;              // { cp, n, mark, at, p: Promise<balances> }
+
+// Every entry dated before `cp`, read 5,000 at a time (far faster than one by one on lakhs of entries).
+async function sumAllBefore(cp) {
+  const b = {};
+  let last;
+  for (;;) {
+    const page = await (last === undefined ? db.journal.orderBy(':id') : db.journal.where(':id').above(last)).limit(5000).toArray();
+    for (const e of page) if ((e.ts || 0) < cp) addEntry(b, e);
+    if (page.length < 5000) return b;
+    last = page[page.length - 1].id;
+  }
+}
+
+async function totalBefore(cp) {
+  const mark = journalOldMark();
+  // Nothing dated before today changed in this window since it was added up: use it as it is.
+  if (memo && memo.cp === cp && memo.mark === mark && Date.now() - memo.at < 300000) return memo.p;
+  const n = await db.journal.where('ts').below(cp).count();          // a few seconds on huge books — only now and then
+  if (memo && memo.cp === cp && memo.n === n) { memo.mark = mark; memo.at = Date.now(); return memo.p; }
+  const p = (async () => {
+    const saved = (await db.syncMeta.get('bal:cp'))?.v;
+    let b;
+    if (saved && saved.cp <= cp && (saved.cp === cp ? saved.n === n : (await db.journal.where('ts').below(saved.cp).count()) === saved.n)) {
+      b = { ...saved.b };
+      if (saved.cp < cp) for (const e of await db.journal.where('ts').between(saved.cp, cp, true, false).toArray()) addEntry(b, e);
+    } else b = await sumAllBefore(cp);
+    if (!saved || saved.cp !== cp || saved.n !== n) {
+      const v = { cp, n, b: { ...b } };
+      writeSoon(() => db.syncMeta.put({ key: 'bal:cp', v }));          // screens read this inside a live query: save a moment later
+    }
+    return b;
+  })();
+  memo = { cp, n, mark, at: Date.now(), p };
+  p.catch(() => { if (memo?.p === p) memo = null; });
+  return p;
+}
 async function allTimeBalances() {
   const cp = new Date().setHours(0, 0, 0, 0);
-  const saved = (await db.syncMeta.get('bal:cp'))?.v;
-  let b = null;
-  if (saved && saved.cp <= cp && (await db.journal.where('ts').below(saved.cp).count()) === saved.n) {
-    b = { ...saved.b };
-    if (saved.cp < cp) await db.journal.where('ts').between(saved.cp, cp, true, false).each(e => addEntry(b, e));
-  } else {
-    b = {};
-    await db.journal.where('ts').below(cp).each(e => addEntry(b, e));
-  }
-  if (!saved || saved.cp !== cp) {
-    const v = { cp, n: await db.journal.where('ts').below(cp).count(), b: { ...b } };
-    writeSoon(() => db.syncMeta.put({ key: 'bal:cp', v }));          // screens read this inside a live query: save a moment later
-  }
-  await db.journal.where('ts').aboveOrEqual(cp).each(e => addEntry(b, e));
+  await db.journal.where('ts').below(cp).reverse().limit(1).primaryKeys();   // cheap: lets a live screen hear about late old entries
+  const b = { ...(await totalBefore(cp)) };
+  for (const e of await db.journal.where('ts').aboveOrEqual(cp).toArray()) addEntry(b, e);
   return b;
 }
 

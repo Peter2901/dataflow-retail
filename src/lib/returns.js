@@ -6,7 +6,7 @@
 // - loyalty points earned on the returned part are taken back.
 import { db } from '../db.js';
 import { r2 } from './util.js';
-import { saveSale } from './sales.js';
+import { saveSale, withLock } from './sales.js';
 
 const r3 = v => Math.round((Number(v) || 0) * 1000) / 1000;
 const P = v => Math.round((Number(v) || 0) * 100);           // paise
@@ -14,7 +14,8 @@ const K = ['gross', 'lineDisc', 'billDisc', 'taxable', 'cgst', 'sgst', 'igst', '
 
 /** What earlier returns of this bill already took back: per line (qty and money), per batch, points, refund. */
 export async function returnedSoFar(sale) {
-  const earlier = (await db.sales.where('origNo').equals(sale.no).toArray()).filter(x => x.type === 'return' && x.storeId === sale.storeId);
+  // Bill numbers never repeat (store + counter + year), so every return of this bill counts — also one made at another branch.
+  const earlier = (await db.sales.where('origNo').equals(sale.no).toArray()).filter(x => x.type === 'return');
   const qty = sale.lines.map(() => 0);
   const amt = sale.lines.map(() => Object.fromEntries(K.map(k => [k, 0])));
   const batch = {};                                            // `${line}|${batchId}` → qty given back
@@ -83,15 +84,25 @@ export function buildReturn(sale, want, done) {
   const earned = sale.pointsEarned || 0;
   const pointsBack = earned > 0 && fullTotal > 0 ? Math.max(0, Math.min(earned, Math.floor((earned * backTotal) / fullTotal + 1e-9)) - done.points) : 0;
   return {
-    lines, billDiscounts: [], pointsBack,
+    lines, billDiscounts: [], pointsBack, doneCount: done.count,          // how many returns this was worked out after
     totals: { gross: T('gross'), lineDisc: T('lineDisc'), billDisc: T('billDisc'), taxable: T('taxable'), cgst: T('cgst'), sgst: T('sgst'), igst: T('igst'), exact, roundOff: r2(payable - exact), payable, mrpTotal: 0, savings: 0, items: lines.length, qty: r3(lines.reduce((a, l) => a + l.qty, 0)) },
   };
 }
 
 /** Save the return. Refund to customer credit (udhaar) only when the bill had a customer. */
-export async function saveReturn({ sale, bill, mode = 'cash', user, shiftId, storeId }) {
+export function saveReturn(args) {
+  // One return at a time, checked again just before saving: two returns of the same bill at the same
+  // moment (two windows, a double press) can never give back more than the bill had.
+  return withLock('return', () => saveReturnNow(args));
+}
+async function saveReturnNow({ sale, bill, mode = 'cash', user, shiftId, storeId }) {
   const customer = sale.customerId ? await db.customers.get(sale.customerId) : null;
   if (mode === 'credit' && !customer) throw new Error('This bill has no customer, so the refund cannot go to customer credit.');
+  const done = await returnedSoFar(sale);
+  const left = returnLeft(sale, done);
+  if ((bill.doneCount != null && done.count !== bill.doneCount) || bill.lines.some(l => l.qty > (left[l.origLine] ?? 0) + 1e-6)) {
+    throw new Error('Part of this bill was returned a moment ago. Open the bill again.');
+  }
   return saveSale({
     bill, payments: [{ mode, amount: bill.totals.payable }], customer, user, shiftId, storeId, type: 'return', origNo: sale.no,
     b2b: sale.b2b?.gstin ? { gstin: sale.b2b.gstin, inter: !!sale.b2b.inter, ...(sale.b2b.name ? { name: sale.b2b.name } : {}) } : null,

@@ -28,7 +28,7 @@ export default function Stock() {
       {tab === 'moves' && <Moves pmap={pmap} storeId={storeId} />}
       {tab === 'adjust' && <Adjust products={products} batches={batches} pmap={pmap} settings={settings} user={user} byProd={byProd} />}
       {tab === 'count' && <Count products={products} batches={batches} user={user} byProd={byProd} />}
-      {tab === 'transfer' && <Transfer products={products} batches={batches} pmap={pmap} storeId={storeId} user={user} />}
+      {tab === 'transfer' && <Transfer products={products} batches={batches} pmap={pmap} storeId={storeId} user={user} byProd={byProd} />}
     </div>
   );
 }
@@ -145,13 +145,15 @@ function Count({ products, batches, user, byProd }) {
   );
 }
 
-function Transfer({ products, batches, pmap, storeId, user }) {
+function Transfer({ products, batches, pmap, storeId, user, byProd }) {
   const toast = useToast();
   const stores = useLive(() => db.stores.toArray(), [], []);
   const [to, setTo] = useState('');
+  const [pid, setPid] = useState('');
   const [bid, setBid] = useState('');
   const [qty, setQty] = useState('');
-  const bs = batches.filter(b => b.status === 'active' && b.qty > 0);
+  // Find the item first (a big store has thousands of batches — never one long list).
+  const bs = (byProd?.get(pid) || batches.filter(b => b.productId === pid)).filter(b => b.status === 'active' && b.qty > 0);
   const batch = bs.find(b => b.id === bid);
   const go = useOnce(async e => {
     e.preventDefault();
@@ -161,11 +163,11 @@ function Transfer({ products, batches, pmap, storeId, user }) {
     toast(`Moved ${q} × ${pmap[batch.productId]?.name} to ${stores.find(s => s.id === to)?.name}. Batch and expiry go with it.`);
     setQty('');
   });
-  void products;
   return (
     <Card title="Send stock to another store">
       <form className="grid g3" onSubmit={go}>
-        <Select label="Batch" value={bid} onChange={e => setBid(e.target.value)} options={[{ value: '', label: 'Choose batch' }, ...bs.map(b => ({ value: b.id, label: `${pmap[b.productId]?.name} · ${b.batchNo} · ${num(b.qty, 2)}` }))]} id="tr-b" />
+        <ProductPicker label="Item" products={products} value={pid} onChange={id => { setPid(id); setBid(''); }} id="tr-p" />
+        <Select label="Batch" value={bid} onChange={e => setBid(e.target.value)} options={[{ value: '', label: 'Choose batch' }, ...bs.map(b => ({ value: b.id, label: `${b.batchNo} · exp ${b.expiry || '—'} · ${num(b.qty, 2)} on hand` }))]} id="tr-b" />
         <Select label="To store" value={to} onChange={e => setTo(e.target.value)} options={[{ value: '', label: 'Choose store' }, ...stores.filter(s => s.id !== storeId).map(s => ({ value: s.id, label: s.name }))]} id="tr-to" />
         <Input label="Quantity" type="number" value={qty} onChange={e => setQty(e.target.value)} id="tr-q" />
         <div><Btn kind="primary" type="submit" disabled={!batch || !to || !(Number(qty) > 0) || Number(qty) > (batch?.qty || 0)}>Transfer</Btn></div>

@@ -200,7 +200,7 @@ function DuplicatesModal({ pairs, stock, onClose, onMerged }) {
   };
   const Side = ({ x }) => <div><b>{x.name}</b><div className="small muted">{x.barcode || 'no barcode'} · MRP ₹{x.mrp} · stock {num(stock[x.id] || 0)}</div></div>;
   return (
-    <Modal wide title={`Possible duplicates (${pairs.length})`} onClose={onClose} footer={<Btn onClick={onClose}>Close</Btn>}>
+    <Modal wide title={`Possible duplicates (${pairs.length}${pairs.more ? '+' : ''})`} onClose={onClose} footer={<>{pairs.more && <span className="grow small muted">Showing the first {pairs.length}. Merge these, then look again for more.</span>}<Btn onClick={onClose}>Close</Btn></>}>
       {!pairs.length ? <p className="muted">No duplicates found. Names with the same size and almost the same words, or the same barcode, show here.</p> :
         <div className="stack">{pairs.map(({ a, b, why }) => (
           <div key={a.id + b.id} className="card" style={{ padding: 12 }}>

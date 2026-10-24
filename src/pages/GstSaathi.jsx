@@ -3,7 +3,7 @@
 // It prepares and checks; the person (or their CA) files on the GST portal. Plain code only:
 // AI never files a return and never sets a GST rate. Rule-book changes need the owner's OK.
 import React, { useEffect, useMemo, useState } from 'react';
-import { db, setSetting } from '../db.js';
+import { db, setSetting, salesMonthMark } from '../db.js';
 import { useApp, useLive, useSlowLive, useToast, PageHead, Card, Btn, Badge, Table, Stat, Select, Input } from '../ui/kit.jsx';
 import { inr, download, localISO, r2, sum } from '../lib/util.js';
 import { exportRows, exportBook, readAny } from '../lib/excel.js';
@@ -26,17 +26,28 @@ const salesIn = (from, to) => db.sales.where('ts').between(from, to, true, true)
 
 // Month totals for turnover limits. A closed month is added up once and kept; it is added up again only
 // if its number of bills changed (a counter that was offline sent old bills). Counting is instant.
-async function monthTotals(key) {
+// In memory too (and shared while still being worked out), so opening GST Saathi again is instant and
+// never adds up the same month twice at the same time. A bill saved for that month (here or synced in)
+// changes the month's mark, and that month alone is added up again.
+const monthMemo = new Map();
+function monthTotals(key) {
   const cur = monthKey(new Date());
-  const { from, to } = monthRange(key);
-  if (key < cur) {
-    const cached = (await db.syncMeta.get('gstsum:' + key))?.v;
-    if (cached?.n != null && cached.n === await db.sales.where('ts').between(from, to, true, true).count()) return cached.sum;
-  }
-  const list = await salesIn(from, to);
-  const s = monthSummary(list);
-  if (key < cur) await db.syncMeta.put({ key: 'gstsum:' + key, v: { at: Date.now(), n: list.length, sum: s } });
-  return s;
+  const { y, m, from, to } = monthRange(key);
+  const mark = salesMonthMark(y, m);
+  const hit = monthMemo.get(key);
+  if (key < cur && hit && hit.mark === mark && Date.now() - hit.at < 300000) return hit.p;
+  const p = (async () => {
+    if (key < cur) {
+      const cached = (await db.syncMeta.get('gstsum:' + key))?.v;
+      if (cached?.n != null && cached.n === await db.sales.where('ts').between(from, to, true, true).count()) return cached.sum;
+    }
+    const list = await salesIn(from, to);
+    const s = monthSummary(list);
+    if (key < cur) await db.syncMeta.put({ key: 'gstsum:' + key, v: { at: Date.now(), n: list.length, sum: s } });
+    return s;
+  })();
+  if (key < cur) { monthMemo.set(key, { mark, at: Date.now(), p }); p.catch(() => monthMemo.delete(key)); }
+  return p;
 }
 const fyKeys = fy => Array.from({ length: 12 }, (_, i) => monthKey(new Date(fy, 3 + i, 1)));
 
@@ -68,8 +79,10 @@ export default function GstSaathi() {
     (async () => {
       const fy = fyStart(new Date());
       const now = monthKey(new Date());
-      const last = await Promise.all(fyKeys(fy - 1).map(monthTotals));
-      const ytd = await Promise.all(fyKeys(fy).filter(k => k <= now).map(monthTotals));
+      // One month at a time, so the screen's own reads are not held up behind 19 months of bills.
+      const last = [], ytd = [];
+      for (const k of fyKeys(fy - 1)) { if (!live) return; last.push(await monthTotals(k)); }
+      for (const k of fyKeys(fy).filter(k => k <= now)) { if (!live) return; ytd.push(await monthTotals(k)); }
       if (live) setTurn({ lastFy: r2(sum(last, m => m.taxable)), ytd: r2(sum(ytd, m => m.taxable)), lastMonths: last.filter(m => m.bills).length });
     })().catch(() => live && setTurn({ lastFy: 0, ytd: 0, lastMonths: 0 }));
     return () => { live = false; };

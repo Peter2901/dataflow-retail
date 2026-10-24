@@ -2,7 +2,7 @@
 // thousand rows at a time, straight into gzip — never one giant text in memory. Optional password
 // (AES-GCM, key from PBKDF2). Restore checks the whole file first and only then replaces the data.
 // Cloud and AI keys are never put in a backup.
-import { db, DEVICE_KEYS } from '../db.js';
+import { db, DEVICE_KEYS, marksOutOfDate } from '../db.js';
 
 const MAGIC = 'DFRBENC1';                 // encrypted backup
 const CHUNK = 2000;
@@ -152,6 +152,7 @@ export async function restoreBackup(checked, onProgress) {
 }
 
 async function restoreNow(checked, onProgress) {
+  marksOutOfDate();
   const keepDevice = (await db.settings.toArray()).filter(r => DEVICE_KEYS.has(r.key));
   const known = new Set(db.tables.map(t => t.name));
   for (const t of db.tables) await t.clear();
@@ -164,12 +165,24 @@ async function restoreNow(checked, onProgress) {
   } else {
     // The tables were just emptied, so rows are added straight in (no "is it already there?" read per row)
     // in big batches: far fewer disk writes and screen refreshes on a big store.
+    // Rows go straight into the browser database (the screen reloads after a restore, so nothing on
+    // screen needs to hear about each row) — about twice as fast on lakhs of rows.
+    let raw = null;
+    try { raw = db.backendDB(); } catch { raw = null; }
+    const putRaw = (name, rows) => new Promise((res, rej) => {
+      const tx = raw.transaction(name, 'readwrite'), st = tx.objectStore(name);
+      for (const r of rows) st.put(r);
+      tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); tx.onabort = () => rej(tx.error || new Error('Restore stopped'));
+    });
     let table = null, batch = [];
     const flush = async () => {
       if (table && known.has(table) && batch.length) {
-        const t = db.table(table);
-        try { await t.bulkAdd(batch); }
-        catch (e) { if (e?.name === 'BulkError') await t.bulkPut(batch); else throw e; }   // an old backup with a repeated row
+        if (raw) await putRaw(table, batch);
+        else {
+          const t = db.table(table);
+          try { await t.bulkAdd(batch); }
+          catch (e) { if (e?.name === 'BulkError') await t.bulkPut(batch); else throw e; }   // an old backup with a repeated row
+        }
       }
       done += batch.length; batch = []; onProgress?.(done);
     };
